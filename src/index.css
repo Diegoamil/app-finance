@@ -1,0 +1,29 @@
+@import url('https://fonts.googleapis.com/css2?family=SF+Pro+Text:wght@300;400;500;600&family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #F8F9FA;
+  --color-card: #FFFFFF;
+  --color-primary: #111827;
+  --color-revenue: #10B981;
+  --color-expense: #EF4444;
+  --color-text-main: #1F2937;
+  --color-text-muted: #6B7280;
+  --color-border: #E5E7EB;
+  --color-whatsapp: #25D366;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background-color: var(--color-bg);
+  color: var(--color-text-main);
+}
+
+/* Hide scrollbar for clean look on mobile */
+::-webkit-scrollbar {
+  display: none;
+}
+* {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
