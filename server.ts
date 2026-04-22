@@ -96,6 +96,85 @@ async function startServer() {
 
   app.use(express.json());
 
+  // ═══════════════════════════════════════════
+  // DONNA AI — Webhook da Evolution API
+  // ═══════════════════════════════════════════
+  app.post("/api/webhook/donna", async (req, res) => {
+    try {
+      // Responder rápido para a Evolution API não dar timeout
+      res.status(200).send("OK");
+
+      const event = req.body?.event;
+
+      // Só processar mensagens recebidas
+      if (event !== "messages.upsert") {
+        return;
+      }
+
+      // Parsear o payload do webhook
+      const parsed = parseWebhookPayload(req.body);
+
+      if (!parsed.isValid || parsed.fromMe || !parsed.messageText) {
+        return; // Ignorar mensagens próprias, inválidas ou vazias
+      }
+
+      // Restrição de segurança: Responder apenas ao número autorizado
+      const allowedPhone = process.env.ALLOWED_WHATSAPP;
+      if (allowedPhone && parsed.phone !== allowedPhone) {
+        console.log(`[WEBHOOK] 🚫 Mensagem ignorada de número não autorizado: ${parsed.phone}`);
+        return;
+      }
+
+      // Ignorar mensagens de grupo (opcional — descomente se quiser suportar grupos)
+      // if (parsed.isGroup) return;
+
+      console.log(`[WEBHOOK] 📩 ${parsed.pushName || parsed.phone}: "${parsed.messageText}"`);
+
+      // Verificar se a OpenAI está configurada
+      if (!process.env.OPENAI_API_KEY) {
+        console.warn("[WEBHOOK] ⚠️ OPENAI_API_KEY não configurada");
+        return;
+      }
+
+      // Enviar reação de "processando" (emoji de relógio)
+      await sendReaction({
+        phone: parsed.phone,
+        messageId: parsed.messageId,
+        emoji: "⏳",
+      });
+
+      // Processar a mensagem com a Donna
+      const result = await processDonnaMessage(parsed.phone, parsed.messageText);
+
+      // Enviar resposta via WhatsApp
+      await sendText({
+        phone: parsed.phone,
+        text: result.message,
+      });
+
+      // Trocar reação para ✅ após processar
+      await sendReaction({
+        phone: parsed.phone,
+        messageId: parsed.messageId,
+        emoji: result.transactionSaved ? "✅" : "💬",
+      });
+
+      console.log(`[WEBHOOK] ✅ Respondido (${result.intent})`);
+    } catch (error) {
+      console.error("[WEBHOOK] Erro no processamento:", error);
+    }
+  });
+
+  // Health check para a Donna
+  app.get("/api/donna/health", (req, res) => {
+    res.json({
+      status: "ok",
+      donna: !!process.env.OPENAI_API_KEY ? "active" : "disabled",
+      evolution: !!process.env.EVOLUTION_API_URL ? "configured" : "not_configured",
+      timestamp: new Date().toISOString(),
+    });
+  });
+
   // === AUTH ROUTES ===
   app.post("/api/auth/register", async (req, res) => {
     const { name, whatsapp, password } = req.body;
@@ -213,84 +292,7 @@ async function startServer() {
     }
   });
 
-  // ═══════════════════════════════════════════
-  // DONNA AI — Webhook da Evolution API
-  // ═══════════════════════════════════════════
-  app.post("/api/webhook/donna", async (req, res) => {
-    try {
-      // Responder rápido para a Evolution API não dar timeout
-      res.status(200).send("OK");
 
-      const event = req.body?.event;
-
-      // Só processar mensagens recebidas
-      if (event !== "messages.upsert") {
-        return;
-      }
-
-      // Parsear o payload do webhook
-      const parsed = parseWebhookPayload(req.body);
-
-      if (!parsed.isValid || parsed.fromMe || !parsed.messageText) {
-        return; // Ignorar mensagens próprias, inválidas ou vazias
-      }
-
-      // Restrição de segurança: Responder apenas ao número autorizado
-      const allowedPhone = process.env.ALLOWED_WHATSAPP;
-      if (allowedPhone && parsed.phone !== allowedPhone) {
-        console.log(`[WEBHOOK] 🚫 Mensagem ignorada de número não autorizado: ${parsed.phone}`);
-        return;
-      }
-
-      // Ignorar mensagens de grupo (opcional — descomente se quiser suportar grupos)
-      // if (parsed.isGroup) return;
-
-      console.log(`[WEBHOOK] 📩 ${parsed.pushName || parsed.phone}: "${parsed.messageText}"`);
-
-      // Verificar se a OpenAI está configurada
-      if (!process.env.OPENAI_API_KEY) {
-        console.warn("[WEBHOOK] ⚠️ OPENAI_API_KEY não configurada");
-        return;
-      }
-
-      // Enviar reação de "processando" (emoji de relógio)
-      await sendReaction({
-        phone: parsed.phone,
-        messageId: parsed.messageId,
-        emoji: "⏳",
-      });
-
-      // Processar a mensagem com a Donna
-      const result = await processDonnaMessage(parsed.phone, parsed.messageText);
-
-      // Enviar resposta via WhatsApp
-      await sendText({
-        phone: parsed.phone,
-        text: result.message,
-      });
-
-      // Trocar reação para ✅ após processar
-      await sendReaction({
-        phone: parsed.phone,
-        messageId: parsed.messageId,
-        emoji: result.transactionSaved ? "✅" : "💬",
-      });
-
-      console.log(`[WEBHOOK] ✅ Respondido (${result.intent})`);
-    } catch (error) {
-      console.error("[WEBHOOK] Erro no processamento:", error);
-    }
-  });
-
-  // Health check para a Donna
-  app.get("/api/donna/health", (req, res) => {
-    res.json({
-      status: "ok",
-      donna: !!process.env.OPENAI_API_KEY ? "active" : "disabled",
-      evolution: !!process.env.EVOLUTION_API_URL ? "configured" : "not_configured",
-      timestamp: new Date().toISOString(),
-    });
-  });
 
   // === VITE MIDDLEWARE ===
   if (process.env.NODE_ENV !== "production") {
