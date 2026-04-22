@@ -3,9 +3,10 @@
  * Responsável por enviar mensagens via WhatsApp usando a Evolution API.
  */
 
-const EVOLUTION_API_URL = process.env.EVOLUTION_API_URL || "http://localhost:8080";
-const EVOLUTION_API_KEY = process.env.EVOLUTION_API_KEY || "";
-const EVOLUTION_INSTANCE = process.env.EVOLUTION_INSTANCE || "";
+// Limpa URL para remover barras no final
+const baseUrl = (process.env.EVOLUTION_API_URL || "http://localhost:8080").replace(/\/$/, "");
+const apiKey = process.env.EVOLUTION_API_KEY || "";
+const instance = process.env.EVOLUTION_INSTANCE || "";
 
 interface SendTextOptions {
   phone: string;
@@ -24,7 +25,8 @@ interface SendReactionOptions {
  */
 export async function sendText({ phone, text, delay }: SendTextOptions): Promise<boolean> {
   try {
-    const url = `${EVOLUTION_API_URL}/message/sendText/${EVOLUTION_INSTANCE}`;
+    const url = `${baseUrl}/message/sendText/${instance}`;
+    console.log(`[EVO] Tentando enviar mensagem para ${url}`);
     
     const body: any = {
       number: phone,
@@ -39,7 +41,7 @@ export async function sendText({ phone, text, delay }: SendTextOptions): Promise
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "apikey": EVOLUTION_API_KEY,
+        "apikey": apiKey,
       },
       body: JSON.stringify(body),
     });
@@ -63,13 +65,13 @@ export async function sendText({ phone, text, delay }: SendTextOptions): Promise
  */
 export async function sendReaction({ phone, messageId, emoji }: SendReactionOptions): Promise<boolean> {
   try {
-    const url = `${EVOLUTION_API_URL}/message/sendReaction/${EVOLUTION_INSTANCE}`;
+    const url = `${baseUrl}/message/sendReaction/${instance}`;
 
     const response = await fetch(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "apikey": EVOLUTION_API_KEY,
+        "apikey": apiKey,
       },
       body: JSON.stringify({
         key: {
