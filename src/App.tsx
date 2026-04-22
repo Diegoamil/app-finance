@@ -7,28 +7,46 @@ import { type Transaction } from "./types";
 import { useMemo, useState } from "react";
 import { format, isSameMonth, parseISO } from "date-fns";
 import { ptBR } from "date-fns/locale";
+import AuthModule from "./components/AuthModule";
+import { LogOut } from "lucide-react";
+import { useEffect } from "react";
 
-const MOCK_TRANSACTIONS: Transaction[] = [
-  { id: "1", type: "income", amount: 4500, category: "Receita", date: "2026-04-10", description: "Salário" },
-  { id: "2", type: "expense", amount: 120, category: "Essencial", date: "2026-04-12", description: "Supermercado" },
-  { id: "3", type: "expense", amount: 45, category: "Importante", date: "2026-04-13", description: "Uber Transporte" },
-  { id: "4", type: "expense", amount: 80, category: "Supérfluo", date: "2026-04-15", description: "Cinema e Lazer" },
-  { id: "5", type: "income", amount: 300, category: "Receita", date: "2026-04-16", description: "Projeto Freelance" },
-  { id: "6", type: "expense", amount: 1500, category: "Essencial", date: "2026-04-01", description: "Aluguel Moradia" },
-  { id: "7", type: "expense", amount: 60, category: "Supérfluo", date: "2026-04-17", description: "iFood Delivery" },
-  { id: "8", type: "expense", amount: 35, category: "Essencial", date: "2026-04-05", description: "Conta de Internet" },
-];
+
 
 export default function App() {
+  const [user, setUser] = useState<{ id: number; name: string; whatsapp: string } | null>(() => {
+    const saved = localStorage.getItem("financeUser");
+    if (saved) return JSON.parse(saved);
+    return null;
+  });
+
+  useEffect(() => {
+    if (user) localStorage.setItem("financeUser", JSON.stringify(user));
+    else localStorage.removeItem("financeUser");
+  }, [user]);
+
+  const [transactionsData, setTransactionsData] = useState<Transaction[]>([]);
   const [activeView, setActiveView] = useState<"dashboard" | "transactions" | "budget">("dashboard");
   const [currentDate, setCurrentDate] = useState(new Date(2026, 3)); // Setup inicial em Abril 2026 (baseado nos mocks)
 
   const handlePrevMonth = () => setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1));
   const handleNextMonth = () => setCurrentDate(prev => new Date(prev.getFullYear(), prev.getMonth() + 1));
 
+  useEffect(() => {
+    if (user) {
+      fetch(`/api/transactions/${user.whatsapp}`)
+        .then(res => res.json())
+        .then(data => {
+          // Converter strings de data para o formato esperado se necessário
+          setTransactionsData(data);
+        })
+        .catch(err => console.error("Erro ao buscar transações:", err));
+    }
+  }, [user]);
+
   const transactions = useMemo(() => {
-    return MOCK_TRANSACTIONS.filter(tx => isSameMonth(parseISO(tx.date), currentDate));
-  }, [currentDate]);
+    return transactionsData.filter(tx => isSameMonth(parseISO(tx.date.toString()), currentDate));
+  }, [transactionsData, currentDate]);
 
   const stats = useMemo(() => {
     return transactions.reduce(
@@ -48,11 +66,19 @@ export default function App() {
     );
   }, [transactions]);
 
+  if (!user) {
+    return (
+      <div className="w-full max-w-md mx-auto min-h-screen bg-[var(--color-bg)]">
+        <AuthModule onLogin={setUser} />
+      </div>
+    );
+  }
+
   if (activeView === "transactions") {
     return (
       <div className="w-full max-w-md mx-auto min-h-screen bg-[var(--color-card)] text-[var(--color-text-main)] relative overflow-x-hidden">
         <AllTransactions 
-          transactions={MOCK_TRANSACTIONS} 
+          transactions={transactionsData} 
           onBack={() => setActiveView("dashboard")} 
         />
       </div>
@@ -76,13 +102,27 @@ export default function App() {
       <header className="px-6 pt-8 pb-4">
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-[#EEE] rounded-[50%] border border-[var(--color-border)]"></div>
+            <div className="w-10 h-10 bg-[#EEE] rounded-[50%] border border-[var(--color-border)] flex items-center justify-center overflow-hidden">
+              <img 
+                src={`https://ui-avatars.com/api/?name=${user.name}&background=111827&color=fff`} 
+                alt="Avatar"
+                className="w-full h-full object-cover"
+              />
+            </div>
             <div>
-              <p className="text-[12px] text-[var(--color-text-muted)] leading-tight">Olá, User</p>
+              <p className="text-[12px] text-[var(--color-text-muted)] leading-tight">Olá, {user.name.split(' ')[0]}</p>
               <p className="text-[14px] font-[700] leading-tight">Bem-vindo</p>
             </div>
           </div>
-          <div className="flex items-center gap-1 text-[var(--color-text-muted)] bg-[var(--color-bg)] rounded-full px-2 py-1">
+          <div className="flex items-center gap-3">
+            <button 
+              onClick={() => setUser(null)}
+              className="w-8 h-8 flex items-center justify-center rounded-full bg-[var(--color-bg)] border border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-red-500 transition-colors"
+              title="Sair"
+            >
+              <LogOut size={16} />
+            </button>
+            <div className="flex items-center gap-1 text-[var(--color-text-muted)] bg-[var(--color-bg)] rounded-full px-2 py-1">
             <button onClick={handlePrevMonth} className="p-1 hover:text-gray-900 transition-colors">
               <ChevronLeft size={16} strokeWidth={2.5} />
             </button>
@@ -92,6 +132,7 @@ export default function App() {
             <button onClick={handleNextMonth} className="p-1 hover:text-gray-900 transition-colors">
               <ChevronRight size={16} strokeWidth={2.5} />
             </button>
+          </div>
           </div>
         </div>
 
