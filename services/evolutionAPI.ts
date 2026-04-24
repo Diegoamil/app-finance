@@ -206,7 +206,7 @@ export function parseWebhookPayload(body: any): WebhookPayload {
       isGroup,
       pushName,
       hasMedia,
-      rawMessage: message,
+      rawMessage: data, // O data inteiro precisa ser passado para a Evolution API autorizar o download
     };
   } catch (error) {
     console.error("[EVO] Erro ao parsear webhook:", error);
