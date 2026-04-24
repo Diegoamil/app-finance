@@ -114,8 +114,8 @@ async function startServer() {
       // Parsear o payload do webhook
       const parsed = parseWebhookPayload(req.body);
 
-      if (!parsed.isValid || parsed.fromMe || !parsed.messageText) {
-        return; // Ignorar mensagens próprias, inválidas ou vazias
+      if (!parsed.isValid || parsed.fromMe || (!parsed.messageText && !parsed.hasMedia)) {
+        return; // Ignorar mensagens próprias, inválidas ou vazias (se não tiver mídia)
       }
 
       // Restrição de segurança: Responder apenas ao número autorizado
@@ -143,8 +143,8 @@ async function startServer() {
         emoji: "⏳",
       });
 
-      // Processar a mensagem com a Donna
-      const result = await processDonnaMessage(parsed.phone, parsed.messageText);
+      // Processar a mensagem com a Donna (Agente Inteligente)
+      const result = await processDonnaMessage(parsed);
 
       // Enviar resposta via WhatsApp
       await sendText({

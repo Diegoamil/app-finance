@@ -96,6 +96,39 @@ export async function sendReaction({ phone, messageId, emoji }: SendReactionOpti
 }
 
 /**
+ * Obtém o Base64 de uma mensagem de mídia (áudio, imagem, vídeo)
+ * Chama o endpoint da Evolution API para baixar a mídia e converter.
+ */
+export async function getMediaBase64(messageObj: any): Promise<{ base64: string; mimetype?: string } | null> {
+  try {
+    const url = `${baseUrl}/chat/getBase64FromMediaMessage/${instance}`;
+    
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": apiKey,
+      },
+      body: JSON.stringify({ message: messageObj }),
+    });
+
+    if (!response.ok) {
+      console.error(`[EVO] Erro ao baixar mídia (Status ${response.status})`);
+      return null;
+    }
+
+    const data = await response.json();
+    if (data && data.base64) {
+      return { base64: data.base64, mimetype: data.mimetype };
+    }
+    return null;
+  } catch (error) {
+    console.error("[EVO] Falha ao obter base64 da mídia:", error);
+    return null;
+  }
+}
+
+/**
  * Extrai o número de telefone limpo de um remoteJid do WhatsApp
  * Ex: "5511999999999@s.whatsapp.net" → "5511999999999"
  */
@@ -103,10 +136,7 @@ export function extractPhoneFromJid(remoteJid: string): string {
   return remoteJid.replace("@s.whatsapp.net", "").replace("@g.us", "");
 }
 
-/**
- * Valida e extrai dados de um webhook da Evolution API
- */
-export function parseWebhookPayload(body: any): {
+export interface WebhookPayload {
   isValid: boolean;
   phone: string;
   messageText: string;
@@ -114,7 +144,14 @@ export function parseWebhookPayload(body: any): {
   fromMe: boolean;
   isGroup: boolean;
   pushName: string;
-} {
+  hasMedia: boolean;
+  rawMessage: any;
+}
+
+/**
+ * Valida e extrai dados de um webhook da Evolution API
+ */
+export function parseWebhookPayload(body: any): WebhookPayload {
   const defaultResult = {
     isValid: false,
     phone: "",
@@ -123,6 +160,8 @@ export function parseWebhookPayload(body: any): {
     fromMe: false,
     isGroup: false,
     pushName: "",
+    hasMedia: false,
+    rawMessage: null,
   };
 
   try {
@@ -150,6 +189,13 @@ export function parseWebhookPayload(body: any): {
       "";
 
     const pushName = data.pushName || "";
+    
+    const hasMedia = !!(
+      message.imageMessage || 
+      message.audioMessage || 
+      message.videoMessage || 
+      message.documentMessage
+    );
 
     return {
       isValid: true,
@@ -159,6 +205,8 @@ export function parseWebhookPayload(body: any): {
       fromMe,
       isGroup,
       pushName,
+      hasMedia,
+      rawMessage: message,
     };
   } catch (error) {
     console.error("[EVO] Erro ao parsear webhook:", error);

@@ -103,9 +103,9 @@ export async function getMonthSummary(whatsapp: string, monthOffset = 0): Promis
     `SELECT 
       COALESCE(SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END), 0) as receitas,
       COALESCE(SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END), 0) as despesas,
-      COALESCE(SUM(CASE WHEN type = 'expense' AND category = 'Essencial' THEN amount ELSE 0 END), 0) as essenciais,
-      COALESCE(SUM(CASE WHEN type = 'expense' AND category = 'Importante' THEN amount ELSE 0 END), 0) as importantes,
-      COALESCE(SUM(CASE WHEN type = 'expense' AND category = 'Supérfluo' THEN amount ELSE 0 END), 0) as superfluos,
+      COALESCE(SUM(CASE WHEN type = 'expense' AND (category ILIKE 'Essencial%' OR category ILIKE 'Fixo%') THEN amount ELSE 0 END), 0) as essenciais,
+      COALESCE(SUM(CASE WHEN type = 'expense' AND (category ILIKE 'Importante%' OR category ILIKE 'Variável%') THEN amount ELSE 0 END), 0) as importantes,
+      COALESCE(SUM(CASE WHEN type = 'expense' AND (category ILIKE 'Supérfluo%' OR category ILIKE 'Desejos%' OR category ILIKE 'Lazer%') THEN amount ELSE 0 END), 0) as superfluos,
       COUNT(*) as total_transactions
     FROM transactions 
     WHERE whatsapp = ANY($1::text[]) 
@@ -114,6 +114,7 @@ export async function getMonthSummary(whatsapp: string, monthOffset = 0): Promis
   );
 
   const row = result.rows[0];
+  console.log(`[DEBUG] Resumo para ${whatsapp} (${startOfMonth} até ${endOfMonth}):`, row);
   const receitas = parseFloat(row.receitas) || 0;
   const despesas = parseFloat(row.despesas) || 0;
 
