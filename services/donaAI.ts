@@ -45,8 +45,22 @@ function parseBankCSV(csvText: string): any[] {
 
     if (!amountStr) continue;
 
-    let amountNum = parseFloat(amountStr.replace(/\./g, '').replace(',', '.'));
-    if (isNaN(amountNum)) amountNum = parseFloat(amountStr);
+    let cleanAmount = amountStr.replace(/[R$\s]/gi, '');
+    if (cleanAmount.includes(',') && cleanAmount.includes('.')) {
+      if (cleanAmount.lastIndexOf(',') > cleanAmount.lastIndexOf('.')) {
+        // Padrão BRL: 1.500,00
+        cleanAmount = cleanAmount.replace(/\./g, '').replace(',', '.');
+      } else {
+        // Padrão US: 1,500.00
+        cleanAmount = cleanAmount.replace(/,/g, '');
+      }
+    } else if (cleanAmount.includes(',')) {
+      // Apenas vírgula: 1500,00
+      cleanAmount = cleanAmount.replace(',', '.');
+    }
+    // Se só tiver ponto (150.00), o parseFloat nativo já resolve.
+
+    let amountNum = parseFloat(cleanAmount);
     if (isNaN(amountNum)) continue;
 
     let finalDate = new Date().toISOString().split('T')[0];
