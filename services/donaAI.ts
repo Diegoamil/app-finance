@@ -33,6 +33,36 @@ const donnaTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "batch_save_transactions",
+      description: "Salva MÚLTIPLAS transações de uma vez só. Útil para importar arquivos CSV de extratos lidos. SÓ CHAME APÓS MOSTRAR O RESUMO E OBTER CONFIRMAÇÃO DO USUÁRIO.",
+      parameters: {
+        type: "object",
+        properties: {
+          transactions: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                type: { type: "string", enum: ["income", "expense", "transfer"] },
+                amount: { type: "number" },
+                category: { type: "string" },
+                description: { type: "string" },
+                estabelecimento: { type: "string" },
+                date: { type: "string" },
+                account: { type: "string" },
+                payment_method: { type: "string" }
+              },
+              required: ["type", "amount", "category", "description", "estabelecimento", "date", "account", "payment_method"]
+            }
+          }
+        },
+        required: ["transactions"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "save_transaction",
       description: "Salva UMA transação financeira comum (à vista). SÓ CHAME APÓS CONFIRMAÇÃO DO USUÁRIO.",
       parameters: {
@@ -167,6 +197,38 @@ async function saveTransaction(whatsapp: string, tx: any): Promise<boolean> {
     );
     return true;
   } catch (error) {
+    return false;
+  }
+}
+
+async function batchSaveTransactions(whatsapp: string, transactions: any[]): Promise<boolean> {
+  try {
+    const user = await getUserByPhone(whatsapp);
+    if (!user) return false;
+
+    for (const tx of transactions) {
+      if (tx.payment_method === 'Crédito') {
+        const cardRes = await pool.query('SELECT closing_day, due_day FROM credit_cards WHERE whatsapp = $1 AND card_name = $2', [user.whatsapp, tx.account]);
+        if (cardRes.rows.length > 0) {
+          const card = cardRes.rows[0];
+          const pDate = new Date(tx.date);
+          let dueMonth = pDate.getMonth();
+          let dueYear = pDate.getFullYear();
+          if (pDate.getDate() >= card.closing_day) dueMonth++;
+          if (card.due_day < card.closing_day) dueMonth++;
+          const dueDate = new Date(dueYear, dueMonth, card.due_day);
+          tx.date = dueDate.toISOString().split('T')[0];
+        }
+      }
+      await pool.query(
+        `INSERT INTO transactions (whatsapp, type, amount, category, date, description, estabelecimento, account, payment_method) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        [user.whatsapp, tx.type, Math.abs(parseFloat(tx.amount)), tx.category, tx.date, tx.description, tx.estabelecimento, tx.account, tx.payment_method]
+      );
+    }
+    return true;
+  } catch (error) {
+    console.error("[DONNA] Erro no lote:", error);
     return false;
   }
 }
@@ -343,6 +405,12 @@ export async function processDonnaMessage(payload: WebhookPayload): Promise<Donn
         const success = await saveTransaction(payload.phone, args);
         transactionSaved = success;
         messages.push({ role: "tool", tool_call_id: toolCall.id, content: success ? "Transação à vista salva na fatura correspondente." : "Erro ao salvar." });
+      }
+      else if (toolCall.function.name === "batch_save_transactions") {
+        const args = JSON.parse(toolCall.function.arguments);
+        const success = await batchSaveTransactions(payload.phone, args.transactions);
+        transactionSaved = success;
+        messages.push({ role: "tool", tool_call_id: toolCall.id, content: success ? `Lote de ${args.transactions.length} transações importado com sucesso.` : "Erro ao salvar lote." });
       }
       else if (toolCall.function.name === "save_installment_purchase") {
         const args = JSON.parse(toolCall.function.arguments);
