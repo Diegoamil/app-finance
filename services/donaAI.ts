@@ -25,12 +25,16 @@ interface DonnaResponse {
   transactionSaved?: boolean;
 }
 
+// ═══════════════════════════════════════════
+// TOOLS (FERRAMENTAS DA DONNA)
+// ═══════════════════════════════════════════
+
 const donnaTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
       name: "save_transaction",
-      description: "Salva UMA transação financeira comum no banco. SÓ CHAME APÓS CONFIRMAÇÃO DO USUÁRIO.",
+      description: "Salva UMA transação financeira comum (à vista). SÓ CHAME APÓS CONFIRMAÇÃO DO USUÁRIO.",
       parameters: {
         type: "object",
         properties: {
@@ -39,10 +43,9 @@ const donnaTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           category: { type: "string", enum: ["Essencial", "Importante", "Supérfluo", "Outros"] },
           description: { type: "string" },
           estabelecimento: { type: "string" },
-          date: { type: "string" },
-          account: { type: "string", description: "Nome da conta. Ex: Nubank, Bradesco" },
-          payment_method: { type: "string", enum: ["Pix", "Débito", "Crédito", "Dinheiro", "Outro"] },
-          third_party: { type: "string", description: "Nome da pessoa, caso seja um gasto de terceiros (ex: Cunhada)." }
+          date: { type: "string", description: "Data no formato YYYY-MM-DD." },
+          account: { type: "string", description: "Nome exato do banco ou cartão. Ex: Nubank, Bradesco." },
+          payment_method: { type: "string", enum: ["Pix", "Débito", "Crédito", "Dinheiro", "Outro"] }
         },
         required: ["type", "amount", "category", "description", "estabelecimento", "date", "account", "payment_method"]
       }
@@ -51,30 +54,36 @@ const donnaTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
-      name: "batch_save_transactions",
-      description: "Salva MÚLTIPLAS transações de uma vez só. Útil para importar arquivos CSV de extratos lidos. SÓ CHAME APÓS MOSTRAR O RESUMO E OBTER CONFIRMAÇÃO DO USUÁRIO.",
+      name: "save_installment_purchase",
+      description: "Salva uma compra PARCELADA no cartão de crédito. Fatiará o valor em múltiplos meses. SÓ CHAME APÓS CONFIRMAÇÃO DO USUÁRIO.",
       parameters: {
         type: "object",
         properties: {
-          transactions: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                type: { type: "string", enum: ["income", "expense", "transfer"] },
-                amount: { type: "number" },
-                category: { type: "string" },
-                description: { type: "string" },
-                estabelecimento: { type: "string" },
-                date: { type: "string" },
-                account: { type: "string" },
-                payment_method: { type: "string" }
-              },
-              required: ["type", "amount", "category", "description", "estabelecimento", "date", "account", "payment_method"]
-            }
-          }
+          total_amount: { type: "number", description: "O valor total da compra." },
+          installments: { type: "number", description: "O número de parcelas. Ex: se for 2x, mande 2." },
+          category: { type: "string" },
+          description: { type: "string" },
+          estabelecimento: { type: "string" },
+          purchase_date: { type: "string", description: "Data da compra em YYYY-MM-DD." },
+          account: { type: "string", description: "Nome exato do cartão de crédito cadastrado." }
         },
-        required: ["transactions"]
+        required: ["total_amount", "installments", "category", "description", "estabelecimento", "purchase_date", "account"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_credit_card_invoice",
+      description: "Consulta o valor total da fatura de um cartão de crédito em um mês específico.",
+      parameters: {
+        type: "object",
+        properties: {
+          account: { type: "string", description: "Nome exato do cartão. Ex: Cartão Elo Nanquin do Bradesco" },
+          month: { type: "number", description: "Mês (1 a 12)." },
+          year: { type: "number", description: "Ano (Ex: 2026)." }
+        },
+        required: ["account", "month", "year"]
       }
     }
   },
@@ -82,13 +91,13 @@ const donnaTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "register_credit_card",
-      description: "Cadastra um novo cartão de crédito. Chame esta função se o usuário gastar num cartão não cadastrado ou pedir para cadastrar.",
+      description: "Cadastra um novo cartão de crédito. Chame esta função APENAS DEPOIS que o usuário informar o nome do cartão, dia de fechamento e dia de vencimento.",
       parameters: {
         type: "object",
         properties: {
           card_name: { type: "string", description: "Ex: Nubank, Bradesco" },
-          closing_day: { type: "number", description: "Dia de fechamento/virada da fatura (ex: 5)." },
-          due_day: { type: "number", description: "Dia de vencimento da fatura (ex: 15)." }
+          closing_day: { type: "number", description: "Dia de fechamento/virada da fatura." },
+          due_day: { type: "number", description: "Dia de vencimento da fatura." }
         },
         required: ["card_name", "closing_day", "due_day"]
       }
@@ -110,24 +119,23 @@ Cartões Cadastrados Atualmente: ${registeredCards}
 
 ${financialContext}
 
-REGRAS INVIOLÁVEIS PARA CARTÕES DE CRÉDITO:
-1. Se a compra foi no crédito (ou o recibo indicar "Cartão de Crédito"), você DEVE saber o nome exato do cartão.
-2. Se a conta ou cartão NÃO constar na sua lista de "Cartões Cadastrados" acima, VOCÊ ESTÁ PROIBIDA de salvar a transação e proibida de pedir confirmação.
-3. Se esbarrar na Regra 2, PARE O FLUXO e responda algo como: "Vi que a compra foi no crédito, mas em qual cartão? Me diga o nome, o dia de fechamento e o vencimento para eu cadastrá-lo antes de lançar."
+REGRAS INVIOLÁVEIS SOBRE CARTÕES DE CRÉDITO:
+1. NUNCA assuma que a palavra "Cartão de Crédito" é o nome da conta. Você DEVE saber a qual banco ele pertence (Ex: Nubank, Bradesco Elo).
+2. Se o usuário comprou no crédito, verifique se o nome exato do cartão está na lista de "Cartões Cadastrados Atualmente".
+3. Se NÃO ESTIVER, você ESTÁ PROIBIDA de mostrar o resumo da compra ou perguntar se pode salvar. PARE TUDO e diga: "Vi que foi no crédito, mas em qual cartão? Preciso do nome, dia de fechamento e dia de vencimento para cadastrar primeiro."
+4. NUNCA salve NADA (parcelado ou à vista) sem antes mostrar o resumo completo e obter um "Sim/Pode salvar" explícito do usuário.
+5. Se for compra parcelada (ex: 2x, 10x), use SEMPRE a ferramenta 'save_installment_purchase', não use 'save_transaction'.
 
-FLUXO DE REGISTRO GERAL:
-1. Extraia os dados. Verifique a Regra Inviolável do Cartão.
-2. Se o cartão for conhecido, apresente o resumo da compra com clareza e PERGUNTE se pode registrar no banco de dados.
-3. SOMENTE APÓS O USUÁRIO DIGITAR "Sim/Pode salvar", você aciona a ferramenta de salvar.
-
-REGRAS OBRIGATÓRIAS DE FORMATAÇÃO (MÚLTIPLAS MENSAGENS):
-- É EXTREMAMENTE PROIBIDO enviar textos longos. Você DEVE separar seus assuntos em balões menores usando EXATAMENTE o separador oculto "|||".
-- Exemplo de Resposta: "🛒 Vi aqui a compra de R$ 300 no Supermercado. ||| 💳 Mas em qual cartão de crédito foi? Me passa o fechamento e vencimento dele pra eu cadastrar."
-- NUNCA envie contas matemáticas chatas. Mostre apenas o resultado do novo saldo se a compra for confirmada.`;
+REGRAS OBRIGATÓRIAS DE FORMATAÇÃO (O SEPARADOR |||):
+- VOCÊ É OBRIGADA A DIVIDIR SUAS RESPOSTAS! Nunca envie um bloco denso de texto!
+- Use o separador EXATO "|||" entre cada parte da sua fala.
+- Exemplo Correto: "✅ Lançamento pronto para salvar! ||| 🛒 O valor foi R$ 300 no Cartão Nubank. Posso registrar?"
+- Exemplo Incorreto: "✅ Lançamento pronto. O valor foi R$ 300. Posso registrar?" (Faltou o |||)
+- Fim das equações matemáticas visíveis (não mostre 487 - 300 = 187). Mostre só o total.`;
 }
 
 // ═══════════════════════════════════════════
-// BANCO DE DADOS
+// LÓGICAS DE BANCO DE DADOS
 // ═══════════════════════════════════════════
 
 async function saveTransaction(whatsapp: string, tx: any): Promise<boolean> {
@@ -135,34 +143,89 @@ async function saveTransaction(whatsapp: string, tx: any): Promise<boolean> {
     const user = await getUserByPhone(whatsapp);
     if (!user) return false;
 
+    // Se for no crédito à vista, precisamos lançar o gasto no dia do VENCIMENTO da fatura
+    if (tx.payment_method === 'Crédito') {
+      const cardRes = await pool.query('SELECT closing_day, due_day FROM credit_cards WHERE whatsapp = $1 AND card_name = $2', [user.whatsapp, tx.account]);
+      if (cardRes.rows.length > 0) {
+        const card = cardRes.rows[0];
+        const pDate = new Date(tx.date);
+        let dueMonth = pDate.getMonth();
+        let dueYear = pDate.getFullYear();
+
+        if (pDate.getDate() >= card.closing_day) dueMonth++;
+        if (card.due_day < card.closing_day) dueMonth++; // Ex: fecha 25, vence 5 do mês seguinte
+
+        const dueDate = new Date(dueYear, dueMonth, card.due_day);
+        tx.date = dueDate.toISOString().split('T')[0];
+      }
+    }
+
     await pool.query(
-      `INSERT INTO transactions (whatsapp, type, amount, category, date, description, estabelecimento, account, payment_method, third_party) 
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-      [user.whatsapp, tx.type, Math.abs(parseFloat(tx.amount)), tx.category, tx.date, tx.description, tx.estabelecimento, tx.account, tx.payment_method, tx.third_party || null]
+      `INSERT INTO transactions (whatsapp, type, amount, category, date, description, estabelecimento, account, payment_method) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [user.whatsapp, tx.type, Math.abs(parseFloat(tx.amount)), tx.category, tx.date, tx.description, tx.estabelecimento, tx.account, tx.payment_method]
     );
     return true;
   } catch (error) {
-    console.error("[DONNA] Erro ao salvar transação:", error);
     return false;
   }
 }
 
-async function batchSaveTransactions(whatsapp: string, transactions: any[]): Promise<boolean> {
+async function saveInstallmentPurchase(whatsapp: string, tx: any): Promise<boolean> {
   try {
     const user = await getUserByPhone(whatsapp);
     if (!user) return false;
 
-    for (const tx of transactions) {
+    const cardRes = await pool.query('SELECT closing_day, due_day FROM credit_cards WHERE whatsapp = $1 AND card_name = $2', [user.whatsapp, tx.account]);
+    if (cardRes.rows.length === 0) return false;
+    const card = cardRes.rows[0];
+
+    const pDate = new Date(tx.purchase_date);
+    let dueMonth = pDate.getMonth();
+    let dueYear = pDate.getFullYear();
+
+    if (pDate.getDate() >= card.closing_day) dueMonth++;
+    if (card.due_day < card.closing_day) dueMonth++;
+
+    const firstDueDate = new Date(dueYear, dueMonth, card.due_day);
+    const installmentAmount = Math.abs(parseFloat(tx.total_amount)) / tx.installments;
+
+    for (let i = 0; i < tx.installments; i++) {
+      const dueDate = new Date(firstDueDate);
+      dueDate.setMonth(dueDate.getMonth() + i); // Adiciona meses
+      
+      const dateStr = dueDate.toISOString().split('T')[0];
+      const installmentInfo = `${i + 1}/${tx.installments}`;
+
       await pool.query(
-        `INSERT INTO transactions (whatsapp, type, amount, category, date, description, estabelecimento, account, payment_method) 
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [user.whatsapp, tx.type, Math.abs(parseFloat(tx.amount)), tx.category, tx.date, tx.description, tx.estabelecimento, tx.account, tx.payment_method]
+        `INSERT INTO transactions (whatsapp, type, amount, category, date, description, estabelecimento, account, payment_method, installment_info) 
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [user.whatsapp, 'expense', installmentAmount, tx.category, dateStr, tx.description, tx.estabelecimento, tx.account, 'Crédito', installmentInfo]
       );
     }
     return true;
   } catch (error) {
-    console.error("[DONNA] Erro ao salvar transações em lote:", error);
+    console.error("[DONNA] Erro no parcelamento:", error);
     return false;
+  }
+}
+
+async function getCreditCardInvoice(whatsapp: string, account: string, month: number, year: number): Promise<string> {
+  try {
+    const res = await pool.query(`
+      SELECT SUM(amount) as total, COUNT(*) as count 
+      FROM transactions 
+      WHERE whatsapp = $1 AND account = $2 AND payment_method = 'Crédito' 
+      AND EXTRACT(MONTH FROM date) = $3 AND EXTRACT(YEAR FROM date) = $4`, 
+      [whatsapp, account, month, year]
+    );
+    
+    if (res.rows.length === 0 || res.rows[0].total === null) {
+      return `Não há compras para a fatura do ${account} em ${month}/${year}.`;
+    }
+    return `A fatura do ${account} em ${month}/${year} é de R$ ${parseFloat(res.rows[0].total).toFixed(2)} (${res.rows[0].count} parcelas/compras).`;
+  } catch (e) {
+    return "Erro ao consultar a fatura.";
   }
 }
 
@@ -178,7 +241,6 @@ async function registerCreditCard(whatsapp: string, cardData: any): Promise<bool
     );
     return true;
   } catch (error) {
-    console.error("[DONNA] Erro ao registrar cartão:", error);
     return false;
   }
 }
@@ -207,12 +269,10 @@ async function getRecentChatHistory(whatsapp: string, limit = 8): Promise<any[]>
 }
 
 // ═══════════════════════════════════════════
-// AGENTIC FLOW PRINCIPAL
+// AGENTIC FLOW
 // ═══════════════════════════════════════════
 
 export async function processDonnaMessage(payload: WebhookPayload): Promise<DonnaResponse> {
-  console.log(`[DONNA] Processando: ${payload.phone}`);
-
   const user = await getUserByPhone(payload.phone);
   if (!user) {
     return { intent: "greeting", messages: ["Oi! Cadastre-se primeiro pelo app. 📊"] };
@@ -225,7 +285,6 @@ export async function processDonnaMessage(payload: WebhookPayload): Promise<Donn
     const mediaData = await getMediaBase64(payload.rawMessage);
     if (mediaData) {
       if (payload.rawMessage.message.audioMessage) {
-        // ÁUDIO
         const buffer = Buffer.from(mediaData.base64, "base64");
         const file = await toFile(buffer, "audio.ogg", { type: mediaData.mimetype || "audio/ogg" });
         const transcription = await openai.audio.transcriptions.create({ file, model: "whisper-1" });
@@ -233,22 +292,14 @@ export async function processDonnaMessage(payload: WebhookPayload): Promise<Donn
         textForDb = userMessageContent;
       } 
       else if (payload.rawMessage.message.imageMessage) {
-        // IMAGEM
         const imageUrl = `data:${mediaData.mimetype || "image/jpeg"};base64,${mediaData.base64}`;
         userMessageContent = [{ type: "text", text: "Analise este comprovante." }, { type: "image_url", image_url: { url: imageUrl } }];
         textForDb = "[Imagem Enviada]";
       }
       else if (payload.rawMessage.message.documentMessage) {
-        // DOCUMENTO (Ex: CSV)
-        console.log("[DONNA] Documento detectado, extraindo texto...");
-        try {
-          const decodedText = Buffer.from(mediaData.base64, "base64").toString("utf-8");
-          // Pega os primeiros 20.000 caracteres para não estourar os limites da API atoa
-          userMessageContent = `[Arquivo CSV/Documento Enviado]\nPor favor, leia este extrato e me resuma as transações:\n\n${decodedText.substring(0, 20000)}`;
-          textForDb = `[Arquivo CSV Enviado - Primeiros caracteres: ${decodedText.substring(0, 50)}...]`;
-        } catch (e) {
-          console.error("[DONNA] Erro ao decodificar documento:", e);
-        }
+        const decodedText = Buffer.from(mediaData.base64, "base64").toString("utf-8");
+        userMessageContent = `[Arquivo CSV/Documento]\nLeia e resuma:\n\n${decodedText.substring(0, 20000)}`;
+        textForDb = `[Arquivo CSV Enviado]`;
       }
     }
   }
@@ -291,18 +342,23 @@ export async function processDonnaMessage(payload: WebhookPayload): Promise<Donn
         const args = JSON.parse(toolCall.function.arguments);
         const success = await saveTransaction(payload.phone, args);
         transactionSaved = success;
-        messages.push({ role: "tool", tool_call_id: toolCall.id, content: success ? "Transação salva." : "Erro ao salvar." });
+        messages.push({ role: "tool", tool_call_id: toolCall.id, content: success ? "Transação à vista salva na fatura correspondente." : "Erro ao salvar." });
       }
-      else if (toolCall.function.name === "batch_save_transactions") {
+      else if (toolCall.function.name === "save_installment_purchase") {
         const args = JSON.parse(toolCall.function.arguments);
-        const success = await batchSaveTransactions(payload.phone, args.transactions);
+        const success = await saveInstallmentPurchase(payload.phone, args);
         transactionSaved = success;
-        messages.push({ role: "tool", tool_call_id: toolCall.id, content: success ? `Lote de ${args.transactions.length} transações salvo com sucesso.` : "Erro ao salvar lote." });
+        messages.push({ role: "tool", tool_call_id: toolCall.id, content: success ? `${args.installments} parcelas salvas nas faturas futuras.` : "Erro ao salvar parcelas." });
+      }
+      else if (toolCall.function.name === "get_credit_card_invoice") {
+        const args = JSON.parse(toolCall.function.arguments);
+        const invoiceText = await getCreditCardInvoice(payload.phone, args.account, args.month, args.year);
+        messages.push({ role: "tool", tool_call_id: toolCall.id, content: invoiceText });
       }
       else if (toolCall.function.name === "register_credit_card") {
         const args = JSON.parse(toolCall.function.arguments);
         const success = await registerCreditCard(payload.phone, args);
-        messages.push({ role: "tool", tool_call_id: toolCall.id, content: success ? `Cartão ${args.card_name} registrado com sucesso. Dias de fechamento e vencimento gravados.` : "Erro ao registrar cartão." });
+        messages.push({ role: "tool", tool_call_id: toolCall.id, content: success ? `Cartão cadastrado. Prossiga com o salvamento da compra (peça confirmação primeiro).` : "Erro ao registrar cartão." });
       }
     }
 
@@ -315,7 +371,10 @@ export async function processDonnaMessage(payload: WebhookPayload): Promise<Donn
     finalReply = secondResponse.choices[0].message.content || finalReply;
   }
 
-  if (!finalReply) finalReply = "Ocorreu um erro interno na resposta.";
+  // Fallback para forçar separador se ela ainda esquecer
+  if (finalReply && !finalReply.includes("|||")) {
+    finalReply = finalReply.replace(/\n\n/g, " ||| ");
+  }
 
   await saveChatMessage(payload.phone, "assistant", finalReply.replace(/\|\|\|/g, "\n"));
   
