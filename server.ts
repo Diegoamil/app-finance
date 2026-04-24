@@ -7,7 +7,7 @@ import dotenv from "dotenv";
 // Donna AI Services
 import { initDonnaAI, processDonnaMessage } from "./services/donaAI.js";
 import { initProactiveAlerts } from "./services/proactiveAlerts.js";
-import { sendText, sendReaction, parseWebhookPayload } from "./services/evolutionAPI.js";
+import { sendText, sendReaction, parseWebhookPayload, sendPresence } from "./services/evolutionAPI.js";
 import { setPool as setFinancialPool } from "./services/financialContext.js";
 
 dotenv.config({ path: ".env.local" });
@@ -190,15 +190,25 @@ async function startServer() {
       // Processar a mensagem com a Donna (Agente Inteligente)
       const result = await processDonnaMessage(parsed);
 
-      // Enviar respostas via WhatsApp com delay
+      // Enviar respostas via WhatsApp com delay humano e "digitando..."
       if (result.messages && result.messages.length > 0) {
         for (const msg of result.messages) {
+          // Calcula tempo de digitação: 35ms por caractere, no mínimo 1.2s e no máximo 4.5s
+          const typingTime = Math.max(1200, Math.min(4500, msg.length * 35));
+          
+          // Avisa o WhatsApp que ela está "digitando..."
+          await sendPresence({ phone: parsed.phone, presence: "composing" });
+          
+          // Espera o tempo de digitação falso
+          await new Promise(resolve => setTimeout(resolve, typingTime));
+
           await sendText({
             phone: parsed.phone,
             text: msg,
           });
-          // Delay de 1.5s entre as mensagens (simula a pessoa digitando a próxima)
-          await new Promise(resolve => setTimeout(resolve, 1500));
+          
+          // Pausa extra após o envio para dar tempo do usuário ler antes da próxima mensagem
+          await new Promise(resolve => setTimeout(resolve, 800));
         }
       }
 

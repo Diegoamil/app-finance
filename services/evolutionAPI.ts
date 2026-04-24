@@ -96,6 +96,37 @@ export async function sendReaction({ phone, messageId, emoji }: SendReactionOpti
 }
 
 /**
+ * Ativa o status de "digitando..." (composing) ou "gravando áudio..." (recording) no WhatsApp
+ */
+export async function sendPresence(params: {
+  phone: string;
+  presence?: "composing" | "recording" | "available" | "unavailable";
+  delay?: number;
+}): Promise<boolean> {
+  try {
+    const url = `${baseUrl}/chat/sendPresence/${instance}`;
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": apiKey,
+      },
+      body: JSON.stringify({
+        number: params.phone,
+        presence: params.presence || "composing",
+        delay: params.delay || 0,
+      }),
+    });
+
+    if (!response.ok) return false;
+    return true;
+  } catch (error) {
+    console.error("[EVO] Erro ao enviar status de presença:", error);
+    return false;
+  }
+}
+
+/**
  * Obtém o Base64 de uma mensagem de mídia (áudio, imagem, vídeo)
  * Chama o endpoint da Evolution API para baixar a mídia e converter.
  */

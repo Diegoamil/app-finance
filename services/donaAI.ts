@@ -11,8 +11,74 @@ import {
 } from "./financialContext.js";
 import { getMediaBase64, WebhookPayload } from "./evolutionAPI.js";
 
+const pendingImports = new Map<string, any[]>();
+
 let openai: OpenAI;
 let pool: Pool;
+
+// ═══════════════════════════════════════════
+// PARSER NATIVO DE CSV (À PROVA DE FALHAS MATEMÁTICAS)
+// ═══════════════════════════════════════════
+function parseBankCSV(csvText: string): any[] {
+  const lines = csvText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+  if (lines.length < 2) return [];
+
+  const delimiter = lines[0].includes(';') ? ';' : ',';
+  const headers = lines[0].toLowerCase().split(delimiter).map(h => h.replace(/["\r]/g, ''));
+  
+  let dateIdx = -1, amountIdx = -1, descIdx = -1;
+  headers.forEach((h, i) => {
+    if (h.includes('data') || h.includes('date')) dateIdx = i;
+    if (h.includes('valor') || h.includes('amount')) amountIdx = i;
+    if (h.includes('descri') || h.includes('hist') || h.includes('título') || h.includes('identificador')) descIdx = i;
+  });
+
+  const transactions = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(delimiter).map(c => c.replace(/["\r]/g, ''));
+    if (cols.length < 2) continue;
+    
+    let dateStr = dateIdx !== -1 ? cols[dateIdx] : cols[0];
+    let amountStr = amountIdx !== -1 ? cols[amountIdx] : cols.find(c => !isNaN(parseFloat(c.replace(',','.'))));
+    let descStr = descIdx !== -1 ? cols[descIdx] : cols.length > 3 ? cols[3] : cols[1];
+
+    if (!amountStr) continue;
+
+    let amountNum = parseFloat(amountStr.replace(/\./g, '').replace(',', '.'));
+    if (isNaN(amountNum)) amountNum = parseFloat(amountStr);
+    if (isNaN(amountNum)) continue;
+
+    let finalDate = new Date().toISOString().split('T')[0];
+    if (dateStr && dateStr.includes('/')) {
+      const parts = dateStr.split('/');
+      if (parts.length === 3) {
+        if (parts[2].length === 4) finalDate = `${parts[2]}-${parts[1]}-${parts[0]}`;
+        else finalDate = `20${parts[2]}-${parts[1]}-${parts[0]}`;
+      }
+    } else if (dateStr && dateStr.includes('-')) {
+      finalDate = dateStr;
+    }
+
+    const type = amountNum < 0 ? 'expense' : 'income';
+    const descLower = (descStr || '').toLowerCase();
+    let category = "Outros";
+    if (descLower.includes('ifood') || descLower.includes('uber') || descLower.includes('netflix') || descLower.includes('ifd')) category = "Supérfluo";
+    else if (descLower.includes('mercado') || descLower.includes('farmacia') || descLower.includes('conta') || descLower.includes('energia')) category = "Essencial";
+
+    transactions.push({
+      type,
+      amount: Math.abs(amountNum),
+      category,
+      description: descStr || 'Importado via CSV',
+      estabelecimento: descStr || 'CSV',
+      date: finalDate,
+      account: 'Importação CSV',
+      payment_method: 'Outro'
+    });
+  }
+  return transactions;
+}
 
 export function initDonnaAI(openaiApiKey: string, dbPool: Pool) {
   openai = new OpenAI({ apiKey: openaiApiKey });
@@ -33,31 +99,9 @@ const donnaTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
-      name: "batch_save_transactions",
-      description: "Salva MÚLTIPLAS transações de uma vez só. Útil para importar arquivos CSV de extratos lidos. SÓ CHAME APÓS MOSTRAR O RESUMO E OBTER CONFIRMAÇÃO DO USUÁRIO.",
-      parameters: {
-        type: "object",
-        properties: {
-          transactions: {
-            type: "array",
-            items: {
-              type: "object",
-              properties: {
-                type: { type: "string", enum: ["income", "expense", "transfer"] },
-                amount: { type: "number" },
-                category: { type: "string" },
-                description: { type: "string" },
-                estabelecimento: { type: "string" },
-                date: { type: "string" },
-                account: { type: "string" },
-                payment_method: { type: "string" }
-              },
-              required: ["type", "amount", "category", "description", "estabelecimento", "date", "account", "payment_method"]
-            }
-          }
-        },
-        required: ["transactions"]
-      }
+      name: "confirm_pending_import",
+      description: "Confirma a importação de um lote de transações CSV que o sistema já processou em background. SÓ CHAME APÓS O USUÁRIO RESPONDER SIM/PODE SALVAR.",
+      parameters: { type: "object", properties: {} }
     }
   },
   {
@@ -148,6 +192,12 @@ Data de hoje: ${today}
 Cartões Cadastrados Atualmente: ${registeredCards}
 
 ${financialContext}
+
+REGRAS DE IMPORTAÇÃO DE EXTRATOS (CSV):
+1. Quando o sistema avisar que processou um CSV automaticamente, você receberá os totais exatos de Receitas e Despesas calculados matematicamente pelo servidor.
+2. NUNCA tente refazer os cálculos. Apenas comunique os totais exatos que o sistema te enviar.
+3. OBRIGATÓRIO: Termine a sua resposta SEMPRE com a pergunta: "Posso salvar essas transações no sistema para você?"
+4. Quando o usuário disser "Sim", chame a ferramenta 'confirm_pending_import'.
 
 REGRAS INVIOLÁVEIS SOBRE CARTÕES DE CRÉDITO:
 1. NUNCA assuma que a palavra "Cartão de Crédito" é o nome da conta. Você DEVE saber a qual banco ele pertence (Ex: Nubank, Bradesco Elo).
@@ -359,9 +409,32 @@ export async function processDonnaMessage(payload: WebhookPayload): Promise<Donn
         textForDb = "[Imagem Enviada]";
       }
       else if (payload.rawMessage.message.documentMessage) {
-        const decodedText = Buffer.from(mediaData.base64, "base64").toString("utf-8");
-        userMessageContent = `[Arquivo CSV/Documento]\nLeia e resuma:\n\n${decodedText.substring(0, 20000)}`;
-        textForDb = `[Arquivo CSV Enviado]`;
+        try {
+          const decodedText = Buffer.from(mediaData.base64, "base64").toString("utf-8");
+          const txs = parseBankCSV(decodedText);
+          
+          if (txs.length === 0) {
+            userMessageContent = `[SISTEMA]: Falha ao tentar ler as colunas do arquivo CSV.`;
+          } else {
+            let income = 0; let expense = 0;
+            txs.forEach(t => { if(t.type === 'income') income += t.amount; else expense += t.amount; });
+            
+            // Cacheia no servidor
+            pendingImports.set(payload.phone, txs);
+
+            userMessageContent = `[SISTEMA - AÇÃO AUTOMÁTICA OBRIGATÓRIA]
+O sistema interceptou o arquivo CSV e processou a matemática nativamente para evitar erros de cálculo.
+Total de Linhas Identificadas: ${txs.length}
+Total de Entradas (Receitas): R$ ${income.toFixed(2)}
+Total de Saídas (Despesas): R$ ${expense.toFixed(2)}
+
+SUA TAREFA AGORA: 
+Apresente APENAS estes totais acima para o usuário (em formato limpo) e pergunte se ele deseja autorizar o registro destas ${txs.length} transações no banco de dados.`;
+          }
+          textForDb = `[Arquivo CSV Enviado e Calculado]`;
+        } catch (e) {
+          console.error("[DONNA] Erro no CSV Parser:", e);
+        }
       }
     }
   }
@@ -406,11 +479,15 @@ export async function processDonnaMessage(payload: WebhookPayload): Promise<Donn
         transactionSaved = success;
         messages.push({ role: "tool", tool_call_id: toolCall.id, content: success ? "Transação à vista salva na fatura correspondente." : "Erro ao salvar." });
       }
-      else if (toolCall.function.name === "batch_save_transactions") {
-        const args = JSON.parse(toolCall.function.arguments);
-        const success = await batchSaveTransactions(payload.phone, args.transactions);
+      else if (toolCall.function.name === "confirm_pending_import") {
+        const txs = pendingImports.get(payload.phone);
+        let success = false;
+        if (txs && txs.length > 0) {
+          success = await batchSaveTransactions(payload.phone, txs);
+          pendingImports.delete(payload.phone); // Limpa o cache
+        }
         transactionSaved = success;
-        messages.push({ role: "tool", tool_call_id: toolCall.id, content: success ? `Lote de ${args.transactions.length} transações importado com sucesso.` : "Erro ao salvar lote." });
+        messages.push({ role: "tool", tool_call_id: toolCall.id, content: success ? `Lote importado com sucesso no banco de dados.` : "Erro: Nenhum lote pendente encontrado na memória." });
       }
       else if (toolCall.function.name === "save_installment_purchase") {
         const args = JSON.parse(toolCall.function.arguments);
