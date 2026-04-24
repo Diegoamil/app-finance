@@ -6,6 +6,7 @@ import dotenv from "dotenv";
 
 // Donna AI Services
 import { initDonnaAI, processDonnaMessage } from "./services/donaAI.js";
+import { initProactiveAlerts } from "./services/proactiveAlerts.js";
 import { sendText, sendReaction, parseWebhookPayload } from "./services/evolutionAPI.js";
 import { setPool as setFinancialPool } from "./services/financialContext.js";
 
@@ -44,9 +45,23 @@ async function initDb() {
           created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
 
-      -- Migration: Add whatsapp column if it doesn't exist
+      -- Tabela de Cartões de Crédito
+      CREATE TABLE IF NOT EXISTS credit_cards (
+          id SERIAL PRIMARY KEY,
+          whatsapp VARCHAR(20) NOT NULL,
+          card_name VARCHAR(50) NOT NULL,
+          closing_day INTEGER NOT NULL,
+          due_day INTEGER NOT NULL,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(whatsapp, card_name)
+      );
+
+      -- Migration: Add multi-account columns and fix types
       DO $$
+      DECLARE
+          const_name text;
       BEGIN
+          -- Adicionar colunas de estabalecimento e fuso originais
           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='transactions' AND column_name='whatsapp') THEN
               ALTER TABLE transactions ADD COLUMN whatsapp VARCHAR(20);
           END IF;
@@ -58,6 +73,32 @@ async function initDb() {
           END IF;
           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='transactions' AND column_name='detalhes') THEN
               ALTER TABLE transactions ADD COLUMN detalhes TEXT;
+          END IF;
+
+          -- Novas colunas da Arquitetura Multi-Contas
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='transactions' AND column_name='account') THEN
+              ALTER TABLE transactions ADD COLUMN account VARCHAR(100);
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='transactions' AND column_name='payment_method') THEN
+              ALTER TABLE transactions ADD COLUMN payment_method VARCHAR(50);
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='transactions' AND column_name='installment_info') THEN
+              ALTER TABLE transactions ADD COLUMN installment_info VARCHAR(20);
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='transactions' AND column_name='third_party') THEN
+              ALTER TABLE transactions ADD COLUMN third_party VARCHAR(100);
+          END IF;
+
+          -- Permitir tipos além de income e expense (ex: transfer) aumentando o tamanho da coluna
+          ALTER TABLE transactions ALTER COLUMN type TYPE VARCHAR(50);
+          
+          -- Encontrar e remover constraint de verificação antiga ('income', 'expense')
+          SELECT conname INTO const_name
+          FROM pg_constraint
+          WHERE conrelid = 'transactions'::regclass AND contype = 'c' AND pg_get_constraintdef(oid) LIKE '%type%';
+          
+          IF const_name IS NOT NULL THEN
+              EXECUTE 'ALTER TABLE transactions DROP CONSTRAINT ' || const_name;
           END IF;
       END $$;
 
@@ -86,7 +127,8 @@ async function startServer() {
   const openaiKey = process.env.OPENAI_API_KEY;
   if (openaiKey) {
     initDonnaAI(openaiKey, pool);
-    console.log("🤖 Donna AI inicializada com sucesso");
+    initProactiveAlerts(openaiKey, pool);
+    console.log("🤖 Donna AI e Alertas Ativos (Cron) inicializados com sucesso");
   } else {
     console.warn("⚠️ OPENAI_API_KEY não configurada — Donna AI desabilitada");
   }
@@ -148,11 +190,17 @@ async function startServer() {
       // Processar a mensagem com a Donna (Agente Inteligente)
       const result = await processDonnaMessage(parsed);
 
-      // Enviar resposta via WhatsApp
-      await sendText({
-        phone: parsed.phone,
-        text: result.message,
-      });
+      // Enviar respostas via WhatsApp com delay
+      if (result.messages && result.messages.length > 0) {
+        for (const msg of result.messages) {
+          await sendText({
+            phone: parsed.phone,
+            text: msg,
+          });
+          // Delay de 1.5s entre as mensagens (simula a pessoa digitando a próxima)
+          await new Promise(resolve => setTimeout(resolve, 1500));
+        }
+      }
 
       // Trocar reação para ✅ após processar
       await sendReaction({
