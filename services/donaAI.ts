@@ -218,10 +218,10 @@ export async function processDonnaMessage(payload: WebhookPayload): Promise<Donn
   let userMessageContent: any = payload.messageText;
   let textForDb = payload.messageText;
 
-  if (payload.hasMedia && payload.rawMessage) {
+  if (payload.hasMedia && payload.rawMessage && payload.rawMessage.message) {
     const mediaData = await getMediaBase64(payload.rawMessage);
     if (mediaData) {
-      if (payload.rawMessage.audioMessage) {
+      if (payload.rawMessage.message.audioMessage) {
         // ÁUDIO
         const buffer = Buffer.from(mediaData.base64, "base64");
         const file = await toFile(buffer, "audio.ogg", { type: mediaData.mimetype || "audio/ogg" });
@@ -229,13 +229,13 @@ export async function processDonnaMessage(payload: WebhookPayload): Promise<Donn
         userMessageContent = `[Áudio Transcrito]: "${transcription.text}"`;
         textForDb = userMessageContent;
       } 
-      else if (payload.rawMessage.imageMessage) {
+      else if (payload.rawMessage.message.imageMessage) {
         // IMAGEM
         const imageUrl = `data:${mediaData.mimetype || "image/jpeg"};base64,${mediaData.base64}`;
         userMessageContent = [{ type: "text", text: "Analise este comprovante." }, { type: "image_url", image_url: { url: imageUrl } }];
         textForDb = "[Imagem Enviada]";
       }
-      else if (payload.rawMessage.documentMessage) {
+      else if (payload.rawMessage.message.documentMessage) {
         // DOCUMENTO (Ex: CSV)
         console.log("[DONNA] Documento detectado, extraindo texto...");
         try {
