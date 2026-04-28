@@ -3,6 +3,8 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import { Pool } from "pg";
 import dotenv from "dotenv";
+import os from "os";
+
 
 // Donna AI Services
 import { initDonnaAI, processDonnaMessage } from "./services/donaAI.js";
@@ -477,7 +479,10 @@ async function startServer() {
   // === VITE MIDDLEWARE ===
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { 
+        middlewareMode: true,
+        host: true 
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);
@@ -490,7 +495,18 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+    const interfaces = os.networkInterfaces();
+    console.log(`\n🚀 Servidor rodando em:`);
+    console.log(`   - Local:   http://localhost:${PORT}`);
+    
+    Object.values(interfaces).forEach((iface) => {
+      iface?.forEach((details) => {
+        if (details.family === 'IPv4' && !details.internal) {
+          console.log(`   - Network: http://${details.address}:${PORT}`);
+        }
+      });
+    });
+    console.log(`\n📱 Use o endereço "Network" acima no seu celular!\n`);
   });
 }
 
