@@ -56,10 +56,8 @@ export default defineConfig(({mode}) => {
       },
     },
     server: {
-      host: true, // Libera o acesso para outros dispositivos na mesma rede (como seu celular)
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modifyâ€”file watching is disabled to prevent flickering during agent edits.
-      hmr: process.env.DISABLE_HMR !== 'true',
+      host: true,
+      hmr: false,
     },
   };
 });
