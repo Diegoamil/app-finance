@@ -472,7 +472,7 @@ Apresente APENAS estes totais acima para o usuário (em formato limpo) e pergunt
   ];
 
   const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
+    model: "gpt-4o",
     temperature: 0.7,
     max_tokens: 1500,
     messages,
@@ -522,7 +522,7 @@ Apresente APENAS estes totais acima para o usuário (em formato limpo) e pergunt
     }
 
     const secondResponse = await openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: "gpt-4o",
       temperature: 0.7,
       max_tokens: 800,
       messages,

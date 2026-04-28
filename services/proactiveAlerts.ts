@@ -80,7 +80,7 @@ REGRAS:
 - Mantenha a ironia elegante da Donna.`;
 
           const response = await openai.chat.completions.create({
-            model: "gpt-4o-mini",
+            model: "gpt-4o",
             temperature: 0.8,
             messages: [{ role: "system", content: systemPrompt }]
           });
