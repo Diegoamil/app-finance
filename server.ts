@@ -167,10 +167,12 @@ async function startServer() {
   // DONNA AI — Webhook da Evolution API
   // ═══════════════════════════════════════════
   app.post("/api/webhook/donna", async (req, res) => {
-    try {
-      // Responder rápido para a Evolution API não dar timeout
-      res.status(200).send("OK");
+    // Responder rápido para a Evolution API não dar timeout
+    res.status(200).send("OK");
 
+    let parsed: ReturnType<typeof parseWebhookPayload> | null = null;
+
+    try {
       const event = req.body?.event;
 
       // Só processar mensagens recebidas
@@ -179,7 +181,7 @@ async function startServer() {
       }
 
       // Parsear o payload do webhook
-      const parsed = parseWebhookPayload(req.body);
+      parsed = parseWebhookPayload(req.body);
 
       if (!parsed.isValid || parsed.fromMe || (!parsed.messageText && !parsed.hasMedia)) {
         return; // Ignorar mensagens próprias, inválidas ou vazias (se não tiver mídia)
@@ -192,10 +194,7 @@ async function startServer() {
         return;
       }
 
-      // Ignorar mensagens de grupo (opcional — descomente se quiser suportar grupos)
-      // if (parsed.isGroup) return;
-
-      console.log(`[WEBHOOK] 📩 ${parsed.pushName || parsed.phone}: "${parsed.messageText}"`);
+      console.log(`[WEBHOOK] 📩 ${parsed.pushName || parsed.phone}: "${parsed.messageText}" | hasMedia: ${parsed.hasMedia}`);
 
       // Verificar se a OpenAI está configurada
       if (!process.env.OPENAI_API_KEY) {
@@ -243,8 +242,26 @@ async function startServer() {
       });
 
       console.log(`[WEBHOOK] ✅ Respondido (${result.intent})`);
-    } catch (error) {
-      console.error("[WEBHOOK] Erro no processamento:", error);
+    } catch (error: any) {
+      console.error("[WEBHOOK] ❌ Erro no processamento:", error?.message || error);
+      console.error("[WEBHOOK] Stack:", error?.stack);
+      
+      // Enviar mensagem de fallback para o usuário não ficar sem resposta
+      if (parsed?.phone) {
+        try {
+          await sendText({
+            phone: parsed.phone,
+            text: "⚠️ Ops, tive um problema técnico ao processar sua mensagem. Tente enviar novamente por texto, por favor!",
+          });
+          await sendReaction({
+            phone: parsed.phone,
+            messageId: parsed.messageId,
+            emoji: "❌",
+          });
+        } catch (fallbackErr) {
+          console.error("[WEBHOOK] Erro no fallback:", fallbackErr);
+        }
+      }
     }
   });
 
