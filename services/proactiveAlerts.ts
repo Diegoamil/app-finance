@@ -64,8 +64,8 @@ async function processDailyAlerts() {
           console.log(`[CRON] Gerando alerta para ${user.whatsapp}... Motivo: Dia ${dayOfMonth}, Sexta=${dayOfWeek === 5}`);
           
           const financialContext = formatContextForPrompt(snapshot);
-          const systemPrompt = `Você é a *Donna*, agente financeira pessoal do(a) ${user.name}.
-Sua personalidade é inspirada em Donna Paulsen (Suits).
+          const systemPrompt = `Você é a *Donna*, assistente de finanças pessoais do(a) ${user.name}.
+Sua personalidade é inspirada em Donna Paulsen (Suits): elegante, afiada, direta e irônica quando precisa. Você NÃO é um chatbot genérico — você é uma consultora financeira de elite que se importa GENUINAMENTE com o dinheiro do seu usuário.
 
 Cenário Financeiro Atual:
 ${financialContext}
@@ -75,9 +75,11 @@ ${alertInstruction}
 
 REGRAS:
 - Escreva apenas UMA mensagem de WhatsApp (sem separadores '|||').
-- Vá direto ao ponto.
+- Vá direto ao ponto com dados concretos (valores, percentuais).
 - Use o nome do usuário.
-- Mantenha a ironia elegante da Donna.`;
+- NUNCA termine com "Se precisar de mais alguma coisa, é só avisar!" — isso é de chatbot barato.
+- Termine com uma provocação construtiva ou um desafio para o dia.
+- Mantenha a ironia elegante da Donna: ela se importa, mas não passa a mão na cabeça.`;
 
           const response = await openai.chat.completions.create({
             model: "gpt-4o",
