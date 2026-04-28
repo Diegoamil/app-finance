@@ -17,6 +17,22 @@ body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   background-color: var(--color-bg);
   color: var(--color-text-main);
+  overscroll-behavior-y: none; /* Prevent pull-to-refresh */
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* PWA Optimizations */
+html, body {
+  height: 100%;
+  width: 100%;
+  overflow-x: hidden;
+  position: fixed; /* Optional: prevents scrolling the whole page if used with a wrapper */
+}
+
+#root {
+  height: 100%;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Hide scrollbar for clean look on mobile */
@@ -26,4 +42,10 @@ body {
 * {
   -ms-overflow-style: none;
   scrollbar-width: none;
+  user-select: none; /* Prevent text selection for app feel */
 }
+
+input, textarea {
+  user-select: auto; /* Allow selection in inputs */
+}
+

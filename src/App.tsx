@@ -13,6 +13,8 @@ import BanksModule from "./components/BanksModule";
 import { LogOut } from "lucide-react";
 import { useEffect } from "react";
 import TransactionDetailDrawer from "./components/TransactionDetailDrawer";
+import PWABadge from "./components/PWABadge";
+
 
 
 
@@ -390,6 +392,8 @@ export default function App() {
           }
         }}
       />
+      <PWABadge />
+
     </div>
   );
 }
