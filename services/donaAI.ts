@@ -508,20 +508,45 @@ export async function processDonnaMessage(payload: WebhookPayload): Promise<Donn
   let textForDb = payload.messageText;
 
   if (payload.hasMedia && payload.rawMessage && payload.rawMessage.message) {
+    console.log(`[DONNA] 📎 Mídia detectada. Tipos presentes:`, Object.keys(payload.rawMessage.message).join(', '));
+    
     const mediaData = await getMediaBase64(payload.rawMessage);
+    
     if (mediaData) {
+      console.log(`[DONNA] ✅ Mídia baixada com sucesso. Tipo: ${mediaData.mimetype}, Tamanho base64: ${mediaData.base64.length} chars`);
+      
+      // ─── ÁUDIO ───
       if (payload.rawMessage.message.audioMessage) {
-        const buffer = Buffer.from(mediaData.base64, "base64");
-        const file = await toFile(buffer, "audio.ogg", { type: mediaData.mimetype || "audio/ogg" });
-        const transcription = await openai.audio.transcriptions.create({ file, model: "whisper-1" });
-        userMessageContent = `[Áudio Transcrito]: "${transcription.text}"`;
-        textForDb = userMessageContent;
+        try {
+          const buffer = Buffer.from(mediaData.base64, "base64");
+          const file = await toFile(buffer, "audio.ogg", { type: mediaData.mimetype || "audio/ogg" });
+          const transcription = await openai.audio.transcriptions.create({ file, model: "whisper-1" });
+          console.log(`[DONNA] 🎙️ Áudio transcrito: "${transcription.text}"`);
+          userMessageContent = `[Áudio Transcrito]: "${transcription.text}"`;
+          textForDb = userMessageContent;
+        } catch (audioErr) {
+          console.error("[DONNA] ❌ Erro ao transcrever áudio:", audioErr);
+          userMessageContent = "[SISTEMA]: O usuário enviou um áudio, mas houve um erro na transcrição. Peça para ele repetir por texto.";
+          textForDb = "[Áudio - Erro na transcrição]";
+        }
       } 
+      // ─── IMAGEM ───
       else if (payload.rawMessage.message.imageMessage) {
+        const caption = payload.rawMessage.message.imageMessage.caption || payload.messageText || "";
         const imageUrl = `data:${mediaData.mimetype || "image/jpeg"};base64,${mediaData.base64}`;
-        userMessageContent = [{ type: "text", text: "Analise este comprovante." }, { type: "image_url", image_url: { url: imageUrl } }];
-        textForDb = "[Imagem Enviada]";
+        
+        const analysisPrompt = caption 
+          ? `O usuário enviou esta imagem com a seguinte mensagem: "${caption}". Analise a imagem no contexto financeiro — se for um comprovante, extraia valor, data, destinatário e método de pagamento. Se for uma nota fiscal, extraia os itens e valores.`
+          : `O usuário enviou esta imagem sem legenda. Analise no contexto financeiro — se for um comprovante de Pix/transferência, extraia: valor, data, destinatário/remetente e banco. Se for uma nota fiscal ou cupom, extraia os itens e o valor total. Descreva o que você vê de forma clara.`;
+        
+        userMessageContent = [
+          { type: "text", text: analysisPrompt }, 
+          { type: "image_url", image_url: { url: imageUrl, detail: "high" } }
+        ];
+        textForDb = caption ? `[Imagem Enviada]: "${caption}"` : "[Imagem Enviada]";
+        console.log(`[DONNA] 🖼️ Imagem processada. Caption: "${caption || '(sem legenda)'}"`);
       }
+      // ─── DOCUMENTO (CSV) ───
       else if (payload.rawMessage.message.documentMessage) {
         try {
           const decodedText = Buffer.from(mediaData.base64, "base64").toString("utf-8");
@@ -549,6 +574,23 @@ Apresente APENAS estes totais acima para o usuário (em formato limpo) e pergunt
         } catch (e) {
           console.error("[DONNA] Erro no CSV Parser:", e);
         }
+      }
+    } else {
+      // A mídia não foi baixada — informar a Donna para pedir ao usuário que reenvie
+      console.error(`[DONNA] ❌ Falha ao baixar mídia da Evolution API. Payload key:`, JSON.stringify(payload.rawMessage.key));
+      
+      if (payload.rawMessage.message.audioMessage) {
+        userMessageContent = "[SISTEMA]: O usuário enviou um áudio, mas o servidor não conseguiu baixar o arquivo. Peça educadamente para ele repetir a mensagem por texto.";
+        textForDb = "[Áudio - Falha no download]";
+      } else if (payload.rawMessage.message.imageMessage) {
+        const caption = payload.rawMessage.message.imageMessage?.caption || payload.messageText || "";
+        userMessageContent = caption 
+          ? `[SISTEMA]: O usuário enviou uma imagem com a legenda "${caption}", mas o servidor não conseguiu processar a imagem. Responda com base na legenda e peça para reenviar a imagem se precisar analisá-la.`
+          : "[SISTEMA]: O usuário enviou uma imagem, mas o servidor não conseguiu processá-la. Peça para ele descrever o conteúdo por texto ou reenviar.";
+        textForDb = "[Imagem - Falha no download]";
+      } else {
+        userMessageContent = "[SISTEMA]: O usuário enviou um arquivo de mídia que não pôde ser processado. Peça para ele reenviar ou descrever o conteúdo.";
+        textForDb = "[Mídia - Falha no download]";
       }
     }
   }

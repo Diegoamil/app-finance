@@ -134,6 +134,9 @@ export async function getMediaBase64(messageObj: any): Promise<{ base64: string;
   try {
     const url = `${baseUrl}/chat/getBase64FromMediaMessage/${instance}`;
     
+    console.log(`[EVO] 📥 Tentando baixar mídia de: ${url}`);
+    console.log(`[EVO] 📦 Payload key:`, JSON.stringify(messageObj?.key || 'sem key'));
+
     const response = await fetch(url, {
       method: "POST",
       headers: {
@@ -144,17 +147,21 @@ export async function getMediaBase64(messageObj: any): Promise<{ base64: string;
     });
 
     if (!response.ok) {
-      console.error(`[EVO] Erro ao baixar mídia (Status ${response.status})`);
+      const errorBody = await response.text();
+      console.error(`[EVO] ❌ Erro ao baixar mídia (Status ${response.status}):`, errorBody);
       return null;
     }
 
     const data = await response.json();
     if (data && data.base64) {
+      console.log(`[EVO] ✅ Mídia recebida. Mimetype: ${data.mimetype}, Base64 length: ${data.base64.length}`);
       return { base64: data.base64, mimetype: data.mimetype };
     }
+    
+    console.error(`[EVO] ⚠️ Resposta da API sem base64. Chaves recebidas:`, Object.keys(data || {}));
     return null;
   } catch (error) {
-    console.error("[EVO] Falha ao obter base64 da mídia:", error);
+    console.error("[EVO] ❌ Falha de rede ao obter base64 da mídia:", error);
     return null;
   }
 }
