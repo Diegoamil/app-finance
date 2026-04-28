@@ -6,9 +6,10 @@ import TransactionList from "./TransactionList";
 interface AllTransactionsProps {
   transactions: Transaction[];
   onBack: () => void;
+  onTransactionClick?: (transaction: Transaction) => void;
 }
 
-export default function AllTransactions({ transactions, onBack }: AllTransactionsProps) {
+export default function AllTransactions({ transactions, onBack, onTransactionClick }: AllTransactionsProps) {
   const [filter, setFilter] = useState<"all" | "income" | "expense">("all");
 
   const filteredTransactions = transactions.filter((tx) => {
@@ -67,7 +68,7 @@ export default function AllTransactions({ transactions, onBack }: AllTransaction
         </div>
 
         {/* Transactions List */}
-        <TransactionList transactions={filteredTransactions} />
+        <TransactionList transactions={filteredTransactions} onTransactionClick={onTransactionClick} />
         
         {filteredTransactions.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 text-center">

@@ -10,10 +10,11 @@ export default function DashboardCharts({ transactions }: { transactions: Transa
     const incomeMap = new Map<string, number>();
 
     transactions.forEach(tx => {
+      const amount = Number(tx.amount) || 0;
       if (tx.type === "expense") {
-        expensesMap.set(tx.category, (expensesMap.get(tx.category) || 0) + tx.amount);
+        expensesMap.set(tx.category, (expensesMap.get(tx.category) || 0) + amount);
       } else {
-        incomeMap.set(tx.category, (incomeMap.get(tx.category) || 0) + tx.amount);
+        incomeMap.set(tx.category, (incomeMap.get(tx.category) || 0) + amount);
       }
     });
 
@@ -75,16 +76,18 @@ export default function DashboardCharts({ transactions }: { transactions: Transa
       )}
 
       {/* Legend */}
-      <div className="mt-4 grid grid-cols-2 gap-y-3 gap-x-2">
+      <div className="mt-2 grid grid-cols-2 gap-y-3 gap-x-4">
         {chartData.map((entry, index) => (
-          <div key={entry.name} className="flex items-center gap-2">
-            <div 
-              className="w-3 h-3 rounded-full" 
-              style={{ backgroundColor: COLORS[index % COLORS.length] }} 
-            />
-            <span className="text-xs font-medium text-gray-600 truncate">{entry.name}</span>
-            <span className="text-[12px] font-[600] text-[var(--color-text-main)] ml-auto whitespace-nowrap">
-              R$ {entry.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+          <div key={entry.name} className="flex items-center justify-between p-2 rounded-xl hover:bg-gray-50 transition-colors">
+            <div className="flex items-center gap-2 overflow-hidden">
+              <div 
+                className="w-2 h-2 rounded-full flex-shrink-0" 
+                style={{ backgroundColor: COLORS[index % COLORS.length] }} 
+              />
+              <span className="text-[11px] font-bold text-gray-500 truncate uppercase tracking-tight">{entry.name}</span>
+            </div>
+            <span className="text-[12px] font-bold text-gray-900 ml-2">
+              {entry.value.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
             </span>
           </div>
         ))}

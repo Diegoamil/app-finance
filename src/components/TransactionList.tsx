@@ -10,6 +10,7 @@ import { cn } from "../lib/utils";
 
 interface TransactionListProps {
   transactions: Transaction[];
+  onTransactionClick?: (transaction: Transaction) => void;
 }
 
 const getCategoryConfig = (category: string, title: string = "") => {
@@ -62,7 +63,7 @@ const CategoryIcon = ({ category, type, title }: { category: string, type: "inco
   return <Icon size={20} style={{ color }} />;
 };
 
-export default function TransactionList({ transactions }: TransactionListProps) {
+export default function TransactionList({ transactions, onTransactionClick }: TransactionListProps) {
   // Sort by date descending
   const sorted = [...transactions].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
@@ -79,8 +80,9 @@ export default function TransactionList({ transactions }: TransactionListProps) 
       {sorted.map((tx, idx) => (
         <div 
           key={tx.id} 
+          onClick={() => onTransactionClick?.(tx)}
           className={cn(
-            "flex items-center py-4",
+            "flex items-center py-4 cursor-pointer active:bg-gray-50 transition-colors",
             idx !== sorted.length - 1 && "border-b border-[var(--color-border)]"
           )}
         >
@@ -112,12 +114,12 @@ export default function TransactionList({ transactions }: TransactionListProps) 
                <span>{format(new Date(tx.created_at || tx.date), "dd MMM · HH:mm", { locale: ptBR })}</span>
             </div>
           </div>
-          <div className="text-right whitespace-nowrap">
+          <div className="text-right whitespace-nowrap ml-2">
             <p className={cn(
-              "font-[700] text-[14px]",
-              tx.type === "income" ? "text-[var(--color-revenue)]" : "text-[var(--color-expense)]"
+              "font-[700] text-[15px] tracking-tight",
+              tx.type === "income" ? "text-emerald-600" : "text-gray-900"
             )}>
-              {tx.type === "income" ? "+" : "-"} R$ {tx.amount.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {tx.type === "income" ? "+" : "-"} {Number(tx.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </p>
           </div>
         </div>

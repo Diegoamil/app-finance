@@ -52,8 +52,21 @@ async function initDb() {
           card_name VARCHAR(50) NOT NULL,
           closing_day INTEGER NOT NULL,
           due_day INTEGER NOT NULL,
+          limit_amount DECIMAL(12, 2),
+          notes TEXT,
           created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
           UNIQUE(whatsapp, card_name)
+      );
+
+      -- Tabela de Contas Bancárias
+      CREATE TABLE IF NOT EXISTS bank_accounts (
+          id SERIAL PRIMARY KEY,
+          whatsapp VARCHAR(20) NOT NULL,
+          bank_name VARCHAR(50) NOT NULL,
+          initial_balance DECIMAL(12, 2) DEFAULT 0,
+          current_balance DECIMAL(12, 2) DEFAULT 0,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(whatsapp, bank_name)
       );
 
       -- Migration: Add multi-account columns and fix types
@@ -87,6 +100,14 @@ async function initDb() {
           END IF;
           IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='transactions' AND column_name='third_party') THEN
               ALTER TABLE transactions ADD COLUMN third_party VARCHAR(100);
+          END IF;
+
+          -- Colunas extras para cartões (se não existirem)
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='credit_cards' AND column_name='limit_amount') THEN
+              ALTER TABLE credit_cards ADD COLUMN limit_amount DECIMAL(12, 2);
+          END IF;
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='credit_cards' AND column_name='notes') THEN
+              ALTER TABLE credit_cards ADD COLUMN notes TEXT;
           END IF;
 
           -- Permitir tipos além de income e expense (ex: transfer) aumentando o tamanho da coluna
@@ -306,6 +327,87 @@ async function startServer() {
     }
   });
 
+  app.get("/api/cards/:whatsapp", async (req, res) => {
+    const { whatsapp } = req.params;
+    try {
+      const variations = getWhatsappVariations(whatsapp);
+      const result = await pool.query(
+        "SELECT * FROM credit_cards WHERE whatsapp = ANY($1::text[]) ORDER BY card_name ASC",
+        [variations]
+      );
+      res.json(result.rows);
+    } catch (err: any) {
+      console.error(err);
+      res.status(500).json({ error: "Erro ao buscar cartões." });
+    }
+  });
+
+  app.post("/api/cards", async (req, res) => {
+    const { whatsapp, card_name, closing_day, due_day, limit_amount, notes } = req.body;
+    try {
+      const variations = getWhatsappVariations(whatsapp);
+      const userRes = await pool.query(
+        "SELECT whatsapp FROM users WHERE whatsapp = ANY($1::text[]) LIMIT 1",
+        [variations]
+      );
+      if (userRes.rows.length === 0) return res.status(400).json({ error: "Usuário não encontrado." });
+      
+      const matchedWhatsapp = userRes.rows[0].whatsapp;
+      const result = await pool.query(
+        `INSERT INTO credit_cards (whatsapp, card_name, closing_day, due_day, limit_amount, notes) 
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (whatsapp, card_name) DO UPDATE 
+         SET closing_day = $3, due_day = $4, limit_amount = $5, notes = $6
+         RETURNING *`,
+        [matchedWhatsapp, card_name, closing_day, due_day, limit_amount, notes]
+      );
+      res.status(201).json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: "Erro ao salvar cartão." });
+    }
+  });
+
+  app.get("/api/banks/:whatsapp", async (req, res) => {
+    const { whatsapp } = req.params;
+    try {
+      const variations = getWhatsappVariations(whatsapp);
+      const result = await pool.query(
+        "SELECT * FROM bank_accounts WHERE whatsapp = ANY($1::text[]) ORDER BY bank_name ASC",
+        [variations]
+      );
+      res.json(result.rows);
+    } catch (err: any) {
+      res.status(500).json({ error: "Erro ao buscar bancos." });
+    }
+  });
+
+  app.post("/api/banks", async (req, res) => {
+    const { whatsapp, bank_name, initial_balance } = req.body;
+    try {
+      const variations = getWhatsappVariations(whatsapp);
+      const userRes = await pool.query(
+        "SELECT whatsapp FROM users WHERE whatsapp = ANY($1::text[]) LIMIT 1",
+        [variations]
+      );
+      if (userRes.rows.length === 0) return res.status(400).json({ error: "Usuário não encontrado." });
+      
+      const matchedWhatsapp = userRes.rows[0].whatsapp;
+      const balance = parseFloat(initial_balance) || 0;
+      
+      const result = await pool.query(
+        `INSERT INTO bank_accounts (whatsapp, bank_name, initial_balance, current_balance) 
+         VALUES ($1, $2, $3, $3)
+         ON CONFLICT (whatsapp, bank_name) DO UPDATE 
+         SET initial_balance = $3, current_balance = bank_accounts.current_balance + ($3 - bank_accounts.initial_balance)
+         RETURNING *`,
+        [matchedWhatsapp, bank_name, balance]
+      );
+      res.status(201).json(result.rows[0]);
+    } catch (err: any) {
+      res.status(500).json({ error: "Erro ao salvar banco." });
+    }
+  });
+
   app.post("/api/transactions", async (req, res) => {
     const { 
       whatsapp, type, amount, category, date, 
@@ -349,6 +451,24 @@ async function startServer() {
     } catch (err: any) {
       console.error("Erro na transação:", err);
       res.status(500).json({ error: "Erro ao salvar transação.", details: err.message });
+    }
+  });
+
+  app.put("/api/transactions/:id", async (req, res) => {
+    const { id } = req.params;
+    const { amount, category } = req.body;
+    try {
+      const result = await pool.query(
+        "UPDATE transactions SET amount = $1, category = $2 WHERE id = $3 RETURNING *",
+        [amount, category, id]
+      );
+      if (result.rows.length === 0) {
+        return res.status(404).json({ error: "Transação não encontrada." });
+      }
+      res.json(result.rows[0]);
+    } catch (err: any) {
+      console.error("Erro ao atualizar transação:", err);
+      res.status(500).json({ error: "Erro ao atualizar transação." });
     }
   });
 

@@ -66,6 +66,11 @@ export interface CategoryBreakdown {
   percentage: number;
 }
 
+export interface BankBalance {
+  bank_name: string;
+  current_balance: number;
+}
+
 export interface FinancialSnapshot {
   userName: string;
   summary: MonthSummary;
@@ -74,6 +79,7 @@ export interface FinancialSnapshot {
   categoryBreakdown: CategoryBreakdown[];
   daysRemaining: number;
   recentTransactions: TopExpense[];
+  bankBalances: BankBalance[];
 }
 
 /**
@@ -260,18 +266,34 @@ export async function countWeeklyByEstablishment(whatsapp: string, searchTerm: s
 }
 
 /**
+ * Busca saldos bancários registrados
+ */
+export async function getBankBalances(whatsapp: string): Promise<BankBalance[]> {
+  const variations = getWhatsappVariations(whatsapp);
+  const result = await pool.query(
+    "SELECT bank_name, current_balance FROM bank_accounts WHERE whatsapp = ANY($1::text[])",
+    [variations]
+  );
+  return result.rows.map(r => ({
+    bank_name: r.bank_name,
+    current_balance: parseFloat(r.current_balance)
+  }));
+}
+
+/**
  * Monta o snapshot financeiro completo para o prompt da Donna
  */
 export async function buildFinancialSnapshot(whatsapp: string): Promise<FinancialSnapshot | null> {
   const user = await getUserByPhone(whatsapp);
   if (!user) return null;
 
-  const [summary, topExpenses, comparison, categoryBreakdown, recentTransactions] = await Promise.all([
+  const [summary, topExpenses, comparison, categoryBreakdown, recentTransactions, bankBalances] = await Promise.all([
     getMonthSummary(user.whatsapp),
     getTopExpenses(user.whatsapp),
     getMonthComparison(user.whatsapp),
     getCategoryBreakdown(user.whatsapp),
     getRecentTransactions(user.whatsapp),
+    getBankBalances(user.whatsapp),
   ]);
 
   // Calcular dias restantes no mês
@@ -287,6 +309,7 @@ export async function buildFinancialSnapshot(whatsapp: string): Promise<Financia
     categoryBreakdown,
     daysRemaining,
     recentTransactions,
+    bankBalances,
   };
 }
 
@@ -294,14 +317,15 @@ export async function buildFinancialSnapshot(whatsapp: string): Promise<Financia
  * Formata o snapshot em texto para injetar no prompt da IA
  */
 export function formatContextForPrompt(snapshot: FinancialSnapshot): string {
-  const { summary, topExpenses, comparison, daysRemaining } = snapshot;
+  const { summary, topExpenses, comparison, daysRemaining, bankBalances } = snapshot;
   
   const metaEssencial = summary.receitas * 0.5;
   const metaImportante = summary.receitas * 0.2;
   const metaSuperfluo = summary.receitas * 0.3;
 
   let context = `CONTEXTO FINANCEIRO ATUAL DO USUÁRIO:
-- Saldo disponível: R$ ${summary.saldo.toFixed(2)}
+- Saldo disponível no mês (Receitas - Despesas): R$ ${summary.saldo.toFixed(2)}
+- Liquidez em Bancos: ${bankBalances.length > 0 ? bankBalances.map(b => `${b.bank_name}: R$ ${b.current_balance.toFixed(2)}`).join(" | ") : "Nenhum banco cadastrado."}
 - Receitas do mês: R$ ${summary.receitas.toFixed(2)}
 - Despesas do mês: R$ ${summary.despesas.toFixed(2)}
   • Essenciais: R$ ${summary.essenciais.toFixed(2)} (meta 50%: R$ ${metaEssencial.toFixed(2)}) — ${metaEssencial > 0 ? Math.round((summary.essenciais / metaEssencial) * 100) : 0}% usado

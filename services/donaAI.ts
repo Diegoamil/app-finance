@@ -190,6 +190,22 @@ const donnaTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
         required: ["card_name", "closing_day", "due_day"]
       }
     }
+  },
+  {
+    type: "function",
+    function: {
+      name: "bank_transfer",
+      description: "Registra uma transferência de valores entre bancos (ex: Pix entre contas próprias). NÃO gera despesa/receita no extrato, apenas move o saldo.",
+      parameters: {
+        type: "object",
+        properties: {
+          from_account: { type: "string", description: "Nome do banco de ORIGEM (onde sai o dinheiro)." },
+          to_account: { type: "string", description: "Nome do banco de DESTINO (onde entra o dinheiro)." },
+          amount: { type: "number", description: "Valor da transferência." }
+        },
+        required: ["from_account", "to_account", "amount"]
+      }
+    }
   }
 ];
 
@@ -259,9 +275,13 @@ ${financialContext}
 REGRAS TÉCNICAS (OBRIGATÓRIAS MAS INVISÍVEIS)
 ═══════════════════════════════════════
 
+BANCOS E LIQUIDEZ:
+- Ao identificar transferência entre bancos próprios (ex: Pix do Nubank pro Itaú) → use 'bank_transfer'.
+- Se o usuário disser que o saldo de um banco mudou ou está errado → use 'bank_transfer' ou comente sobre ajuste manual.
+- Transferências internas NÃO devem ser salvas como 'save_transaction'.
+
 CARTÕES DE CRÉDITO:
-- NUNCA assuma "Cartão de Crédito" como nome da conta. Pergunte QUAL cartão específico.
-- Se o cartão não estiver na lista de cadastrados, PARE e peça nome, dia de fechamento e vencimento antes de prosseguir.
+- Pagamento de fatura → Se sai do Banco X para o Cartão Y, registre como 'expense' no banco com categoria 'Pagamento Fatura'.
 - Compra parcelada (2x, 10x, etc.) → use 'save_installment_purchase', NUNCA 'save_transaction'.
 
 CONFIRMAÇÃO OBRIGATÓRIA:
@@ -424,11 +444,40 @@ async function registerCreditCard(whatsapp: string, cardData: any): Promise<bool
 
 async function getRegisteredCards(whatsapp: string): Promise<string> {
   try {
-    const result = await pool.query(`SELECT card_name, closing_day, due_day FROM credit_cards WHERE whatsapp = $1`, [whatsapp]);
+    const result = await pool.query(`SELECT card_name, closing_day, due_day, limit_amount, notes FROM credit_cards WHERE whatsapp = $1`, [whatsapp]);
     if (result.rows.length === 0) return "Nenhum cartão cadastrado.";
-    return result.rows.map(r => `${r.card_name} (Fecha dia ${r.closing_day}, Vence dia ${r.due_day})`).join(" | ");
+    return result.rows.map(r => {
+      let info = `${r.card_name} (Fecha dia ${r.closing_day}, Vence dia ${r.due_day}`;
+      if (r.limit_amount) info += `, Limite: R$ ${r.limit_amount}`;
+      if (r.notes) info += `, Observação: ${r.notes}`;
+      info += ")";
+      return info;
+    }).join(" | ");
   } catch (error) {
     return "Erro ao buscar cartões.";
+  }
+}
+
+async function handleBankTransfer(whatsapp: string, data: any): Promise<boolean> {
+  try {
+    const user = await getUserByPhone(whatsapp);
+    if (!user) return false;
+
+    // Saída da origem
+    await pool.query(
+      "UPDATE bank_accounts SET current_balance = current_balance - $1 WHERE whatsapp = $2 AND bank_name = $3",
+      [data.amount, user.whatsapp, data.from_account]
+    );
+
+    // Entrada no destino
+    await pool.query(
+      "UPDATE bank_accounts SET current_balance = current_balance + $1 WHERE whatsapp = $2 AND bank_name = $3",
+      [data.amount, user.whatsapp, data.to_account]
+    );
+
+    return true;
+  } catch (error) {
+    return false;
   }
 }
 
@@ -569,6 +618,11 @@ Apresente APENAS estes totais acima para o usuário (em formato limpo) e pergunt
         const args = JSON.parse(toolCall.function.arguments);
         const success = await registerCreditCard(payload.phone, args);
         messages.push({ role: "tool", tool_call_id: toolCall.id, content: success ? `Cartão cadastrado. Prossiga com o salvamento da compra (peça confirmação primeiro).` : "Erro ao registrar cartão." });
+      }
+      else if (toolCall.function.name === "bank_transfer") {
+        const args = JSON.parse(toolCall.function.arguments);
+        const success = await handleBankTransfer(payload.phone, args);
+        messages.push({ role: "tool", tool_call_id: toolCall.id, content: success ? `Transferência de R$ ${args.amount} do ${args.from_account} para ${args.to_account} realizada com sucesso.` : "Erro ao realizar transferência. Verifique os nomes dos bancos." });
       }
     }
 

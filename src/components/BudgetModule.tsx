@@ -10,19 +10,19 @@ interface BudgetModuleProps {
 export default function BudgetModule({ transactions, onBack }: BudgetModuleProps) {
   // Calculando com base no mês atual (ou do filtro passado)
   const currentMonthIncome = useMemo(() => 
-    transactions.filter(t => t.type === "income").reduce((acc, t) => acc + t.amount, 0),
+    transactions.filter(t => t.type === "income").reduce((acc, t) => acc + (Number(t.amount) || 0), 0),
   [transactions]);
 
   const currentMonthEssenciais = useMemo(() => 
-    transactions.filter(t => t.type === "expense" && t.category === "Essencial").reduce((acc, t) => acc + t.amount, 0),
+    transactions.filter(t => t.type === "expense" && t.category === "Essencial").reduce((acc, t) => acc + (Number(t.amount) || 0), 0),
   [transactions]);
 
   const currentMonthSuperfluos = useMemo(() => 
-    transactions.filter(t => t.type === "expense" && t.category === "Supérfluo").reduce((acc, t) => acc + t.amount, 0),
+    transactions.filter(t => t.type === "expense" && t.category === "Supérfluo").reduce((acc, t) => acc + (Number(t.amount) || 0), 0),
   [transactions]);
 
   const currentMonthImportantes = useMemo(() => 
-    transactions.filter(t => t.type === "expense" && t.category === "Importante").reduce((acc, t) => acc + t.amount, 0),
+    transactions.filter(t => t.type === "expense" && t.category === "Importante").reduce((acc, t) => acc + (Number(t.amount) || 0), 0),
   [transactions]);
 
   // Simulador de Orçamento
