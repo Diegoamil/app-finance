@@ -332,7 +332,7 @@ export default function App() {
           onClick={() => setActiveView("home")}
           className={`flex flex-col items-center gap-1 transition-all ${activeView === "home" ? "text-black" : "text-gray-400 hover:text-gray-600"}`}
         >
-          <Home size={22} variant={activeView === "home" ? "bold" : "outline"} />
+          <Home size={22} strokeWidth={activeView === "home" ? 3 : 2} />
           <span className="text-[10px] font-bold uppercase tracking-wider">Home</span>
         </button>
         
