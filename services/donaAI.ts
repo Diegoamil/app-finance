@@ -25,7 +25,7 @@ function parseBankCSV(csvText: string): any[] {
 
   const delimiter = lines[0].includes(';') ? ';' : ',';
   const headers = lines[0].toLowerCase().split(delimiter).map(h => h.replace(/["\r]/g, ''));
-  
+
   let dateIdx = -1, amountIdx = -1, descIdx = -1;
   headers.forEach((h, i) => {
     if (h.includes('data') || h.includes('date')) dateIdx = i;
@@ -38,9 +38,9 @@ function parseBankCSV(csvText: string): any[] {
   for (let i = 1; i < lines.length; i++) {
     const cols = lines[i].split(delimiter).map(c => c.replace(/["\r]/g, ''));
     if (cols.length < 2) continue;
-    
+
     let dateStr = dateIdx !== -1 ? cols[dateIdx] : cols[0];
-    let amountStr = amountIdx !== -1 ? cols[amountIdx] : cols.find(c => !isNaN(parseFloat(c.replace(',','.'))));
+    let amountStr = amountIdx !== -1 ? cols[amountIdx] : cols.find(c => !isNaN(parseFloat(c.replace(',', '.'))));
     let descStr = descIdx !== -1 ? cols[descIdx] : cols.length > 3 ? cols[3] : cols[1];
 
     if (!amountStr) continue;
@@ -216,7 +216,7 @@ const donnaTools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
 function buildSystemPrompt(userName: string, financialContext: string, registeredCards: string): string {
   const today = new Date().toISOString().split("T")[0];
   const dayOfMonth = new Date().getDate();
-  
+
   return `Você é a *Donna*, assistente de finanças pessoais do(a) ${userName}.
 Data de hoje: ${today} (Dia ${dayOfMonth} do mês)
 
@@ -394,7 +394,7 @@ async function saveInstallmentPurchase(whatsapp: string, tx: any): Promise<boole
     for (let i = 0; i < tx.installments; i++) {
       const dueDate = new Date(firstDueDate);
       dueDate.setMonth(dueDate.getMonth() + i); // Adiciona meses
-      
+
       const dateStr = dueDate.toISOString().split('T')[0];
       const installmentInfo = `${i + 1}/${tx.installments}`;
 
@@ -417,10 +417,10 @@ async function getCreditCardInvoice(whatsapp: string, account: string, month: nu
       SELECT SUM(amount) as total, COUNT(*) as count 
       FROM transactions 
       WHERE whatsapp = $1 AND account = $2 AND payment_method = 'Crédito' 
-      AND EXTRACT(MONTH FROM date) = $3 AND EXTRACT(YEAR FROM date) = $4`, 
+      AND EXTRACT(MONTH FROM date) = $3 AND EXTRACT(YEAR FROM date) = $4`,
       [whatsapp, account, month, year]
     );
-    
+
     if (res.rows.length === 0 || res.rows[0].total === null) {
       return `Não há compras para a fatura do ${account} em ${month}/${year}.`;
     }
@@ -488,7 +488,7 @@ async function handleBankTransfer(whatsapp: string, data: any): Promise<boolean>
 async function saveChatMessage(whatsapp: string, role: "user" | "assistant", content: string): Promise<void> {
   try {
     await pool.query(`INSERT INTO chat_messages (whatsapp, role, content) VALUES ($1, $2, $3)`, [whatsapp, role, content]);
-  } catch (e) {}
+  } catch (e) { }
 }
 
 async function getRecentChatHistory(whatsapp: string, limit = 8): Promise<any[]> {
@@ -513,12 +513,12 @@ export async function processDonnaMessage(payload: WebhookPayload): Promise<Donn
 
   if (payload.hasMedia && payload.rawMessage && payload.rawMessage.message) {
     console.log(`[DONNA] 📎 Mídia detectada. Tipos presentes:`, Object.keys(payload.rawMessage.message).join(', '));
-    
+
     const mediaData = await getMediaBase64(payload.rawMessage);
-    
+
     if (mediaData) {
       console.log(`[DONNA] ✅ Mídia baixada com sucesso. Tipo: ${mediaData.mimetype}, Tamanho base64: ${mediaData.base64.length} chars`);
-      
+
       // ─── ÁUDIO ───
       if (payload.rawMessage.message.audioMessage) {
         try {
@@ -533,18 +533,18 @@ export async function processDonnaMessage(payload: WebhookPayload): Promise<Donn
           userMessageContent = "[SISTEMA]: O usuário enviou um áudio, mas houve um erro na transcrição. Peça para ele repetir por texto.";
           textForDb = "[Áudio - Erro na transcrição]";
         }
-      } 
+      }
       // ─── IMAGEM ───
       else if (payload.rawMessage.message.imageMessage) {
         const caption = payload.rawMessage.message.imageMessage.caption || payload.messageText || "";
         const imageUrl = `data:${mediaData.mimetype || "image/jpeg"};base64,${mediaData.base64}`;
-        
-        const analysisPrompt = caption 
+
+        const analysisPrompt = caption
           ? `O usuário enviou esta imagem com a seguinte mensagem: "${caption}". Analise a imagem no contexto financeiro — se for um comprovante, extraia valor, data, destinatário e método de pagamento. Se for uma nota fiscal, extraia os itens e valores.`
           : `O usuário enviou esta imagem sem legenda. Analise no contexto financeiro — se for um comprovante de Pix/transferência, extraia: valor, data, destinatário/remetente e banco. Se for uma nota fiscal ou cupom, extraia os itens e o valor total. Descreva o que você vê de forma clara.`;
-        
+
         userMessageContent = [
-          { type: "text", text: analysisPrompt }, 
+          { type: "text", text: analysisPrompt },
           { type: "image_url", image_url: { url: imageUrl, detail: "high" } }
         ];
         textForDb = caption ? `[Imagem Enviada]: "${caption}"` : "[Imagem Enviada]";
@@ -555,13 +555,13 @@ export async function processDonnaMessage(payload: WebhookPayload): Promise<Donn
         try {
           const decodedText = Buffer.from(mediaData.base64, "base64").toString("utf-8");
           const txs = parseBankCSV(decodedText);
-          
+
           if (txs.length === 0) {
             userMessageContent = `[SISTEMA]: Falha ao tentar ler as colunas do arquivo CSV.`;
           } else {
             let income = 0; let expense = 0;
-            txs.forEach(t => { if(t.type === 'income') income += t.amount; else expense += t.amount; });
-            
+            txs.forEach(t => { if (t.type === 'income') income += t.amount; else expense += t.amount; });
+
             // Cacheia no servidor
             pendingImports.set(payload.phone, txs);
 
@@ -582,13 +582,13 @@ Apresente APENAS estes totais acima para o usuário (em formato limpo) e pergunt
     } else {
       // A mídia não foi baixada — informar a Donna para pedir ao usuário que reenvie
       console.error(`[DONNA] ❌ Falha ao baixar mídia da Evolution API. Payload key:`, JSON.stringify(payload.rawMessage.key));
-      
+
       if (payload.rawMessage.message.audioMessage) {
         userMessageContent = "[SISTEMA]: O usuário enviou um áudio, mas o servidor não conseguiu baixar o arquivo. Peça educadamente para ele repetir a mensagem por texto.";
         textForDb = "[Áudio - Falha no download]";
       } else if (payload.rawMessage.message.imageMessage) {
         const caption = payload.rawMessage.message.imageMessage?.caption || payload.messageText || "";
-        userMessageContent = caption 
+        userMessageContent = caption
           ? `[SISTEMA]: O usuário enviou uma imagem com a legenda "${caption}", mas o servidor não conseguiu processar a imagem. Responda com base na legenda e peça para reenviar a imagem se precisar analisá-la.`
           : "[SISTEMA]: O usuário enviou uma imagem, mas o servidor não conseguiu processá-la. Peça para ele descrever o conteúdo por texto ou reenviar.";
         textForDb = "[Imagem - Falha no download]";
@@ -609,7 +609,7 @@ Apresente APENAS estes totais acima para o usuário (em formato limpo) e pergunt
   const snapshot = await buildFinancialSnapshot(payload.phone);
   const financialContext = snapshot ? formatContextForPrompt(snapshot) : "Nenhum dado encontrado.";
   const registeredCards = await getRegisteredCards(payload.phone);
-  
+
   const chatHistory = await getRecentChatHistory(payload.phone, 8);
   const messages: any[] = [
     { role: "system", content: buildSystemPrompt(user.name, financialContext, registeredCards) },
@@ -681,13 +681,13 @@ Apresente APENAS estes totais acima para o usuário (em formato limpo) e pergunt
     finalReply = secondResponse.choices[0].message.content || finalReply;
   }
 
-  // Fallback para forçar separador se ela ainda esquecer
+  // Fallback para forçar separador se ela ainda esquecer #teste
   if (finalReply && !finalReply.includes("|||")) {
     finalReply = finalReply.replace(/\n\n/g, " ||| ");
   }
 
   await saveChatMessage(payload.phone, "assistant", finalReply.replace(/\|\|\|/g, "\n"));
-  
+
   const splitMessages = finalReply.split("|||").map(m => m.trim()).filter(m => m.length > 0);
 
   return { intent: "agent_flow", messages: splitMessages, transactionSaved };
